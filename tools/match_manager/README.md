@@ -9,7 +9,7 @@ npm run build
 ./match-manager
 ```
 
-The CLI uses the same persistent data directories as the old web UI:
+The CLI persists match data in:
 
 - `engines/` for saved engine snapshots
 - `matches/` for match configs, status, logs, and PGNs
