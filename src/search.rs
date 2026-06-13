@@ -653,13 +653,19 @@ fn alpha_beta(board: &mut Board, ctx: &mut SearchContext,
     }
     let beta = beta_md;
 
-    // Drop into quiescence at depth 0
+    let in_check = board.is_in_check(board.side);
+
+    // A side in check cannot legally stand pat. If depth is exhausted while in
+    // check, continue through the normal move loop so checkmates and evasions
+    // are scored by legal play instead of by static evaluation.
+    let depth = if depth <= 0 && in_check { 1 } else { depth };
+
+    // Drop into quiescence at depth 0 only for quiet-to-move positions.
     if depth <= 0 {
         ctx.history_hashes.pop();
         return quiescence(board, ctx, alpha, beta, ply, 0);
     }
 
-    let in_check = board.is_in_check(board.side);
     // Check extension: extend by 1 ply when in check.
     // Absolute ply cap based on current iteration depth, not max_depth.
     // This prevents search explosion in endgames with long checking sequences.
@@ -1076,4 +1082,33 @@ fn is_insufficient_material(board: &Board) -> bool {
         if (bishops | knights).count_ones() == 1 { return true; }
     }
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn depth_zero_in_check_detects_mate() {
+        let atk = AttackTables::init();
+        let z = Zobrist::new();
+        let mut tt = TranspositionTable::new(1);
+        let stop = std::sync::atomic::AtomicBool::new(false);
+        let mut board = Board::from_fen("7k/6Q1/6K1/8/8/8/8/8 b - - 0 1").unwrap();
+        let mut ctx = SearchContext::new(
+            &atk,
+            &z,
+            &mut tt,
+            Limits { max_depth: 1, ..Limits::default() },
+            Vec::new(),
+            0,
+            &stop,
+        );
+        ctx.root_color = board.side;
+
+        let mut pv = Vec::new();
+        let score = alpha_beta(&mut board, &mut ctx, -SCORE_INF, SCORE_INF, 0, 0, true, &mut pv);
+
+        assert_eq!(score, -SCORE_MATE);
+    }
 }
