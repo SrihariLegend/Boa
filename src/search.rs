@@ -113,6 +113,10 @@ const FUTILITY_MAX_DEPTH: i32 = 3;
 /// Keeps learned capture ordering from overwhelming the static MVV-LVA signal.
 const CAP_HISTORY_DIVISOR: i32 = 16;
 
+/// Quiescence check evasion cap. In-check stand-pat is illegal, but unlimited
+/// evasion recursion was too expensive; this keeps the tactical fix bounded.
+const QS_CHECK_EVASION_MAX_PLY: usize = 2;
+
 
 // ---- Search statistics (diagnostic) ----
 
@@ -298,16 +302,16 @@ impl<'a> SearchContext<'a> {
 
     fn should_stop(&mut self) -> bool {
         if self.stopped { return true; }
+        if self.limits.nodes > 0 && self.nodes >= self.limits.nodes {
+            self.stopped = true;
+            return true;
+        }
         if self.nodes & 4095 == 0 {
             if self.stop_flag.load(std::sync::atomic::Ordering::Relaxed) {
                 self.stopped = true;
                 return true;
             }
             if self.limits.move_time > 0 && self.elapsed_ms() >= self.limits.move_time {
-                self.stopped = true;
-                return true;
-            }
-            if self.limits.nodes > 0 && self.nodes >= self.limits.nodes {
                 self.stopped = true;
                 return true;
             }
@@ -415,6 +419,7 @@ pub fn search(board: &mut Board, ctx: &mut SearchContext) -> SearchResult {
     ctx.tt.new_search();
     ctx.nodes = 0;
     ctx.stopped = false;
+    ctx.stats = SearchStats::default();
     ctx.root_color = board.side;
 
     let (time_budget, hard_budget) = ctx.time_for_move(board.side);
@@ -430,6 +435,7 @@ pub fn search(board: &mut Board, ctx: &mut SearchContext) -> SearchResult {
     let mut best_move  = MOVE_NONE;
     let mut best_score = -SCORE_INF;
     let mut pv         = Vec::new();
+    let mut completed_depth = 0;
 
     for depth in 1..=ctx.limits.max_depth {
         ctx.root_depth = depth as i32;
@@ -457,6 +463,7 @@ pub fn search(board: &mut Board, ctx: &mut SearchContext) -> SearchResult {
                  depth, score_str, ctx.nodes, nps, elapsed,
                  ctx.tt.hashfull(), pv_str.trim());
         let _ = std::io::Write::flush(&mut std::io::stdout());
+        completed_depth = depth;
 
         // Time management: stop if we've used our soft budget
         if time_budget > 0 && ctx.elapsed_ms() >= time_budget { break; }
@@ -480,7 +487,7 @@ pub fn search(board: &mut Board, ctx: &mut SearchContext) -> SearchResult {
         }
     }
 
-    SearchResult { best_move, score: best_score, depth: ctx.limits.max_depth, nodes: ctx.nodes, pv }
+    SearchResult { best_move, score: best_score, depth: completed_depth, nodes: ctx.nodes, pv }
 }
 
 fn aspiration_search(board: &mut Board, ctx: &mut SearchContext,
@@ -838,10 +845,43 @@ fn quiescence(board: &mut Board, ctx: &mut SearchContext,
     ctx.nodes += 1;
     ctx.stats.qnodes += 1;
 
-    // Normal quiescence: captures only.
-    // (In-check evasion search was tried 2026-06-11: SPRT FAILED at -97 Elo —
-    // unbounded evasion recursion explodes qsearch without SEE pruning.
-    // Re-attempt only with SEE-based pruning + evasion ordering + a qs_ply cap.)
+    if board.is_in_check(board.side) {
+        if qs_ply >= QS_CHECK_EVASION_MAX_PLY || ply >= MAX_PLY {
+            return evaluate(board, &EvalContext { atk: ctx.atk });
+        }
+
+        let mut list = gen_moves(board, ctx.atk);
+        score_moves(board, ctx, &mut list, MOVE_NONE, ply);
+
+        let mut legal_moves = 0;
+        for i in 0..list.count {
+            list.pick_best(i);
+            let m = list.moves[i];
+
+            let undo = board.make_move(m, ctx.z);
+            if board.is_in_check(board.side.flip()) {
+                board.unmake_move(m, &undo, ctx.z);
+                continue;
+            }
+            legal_moves += 1;
+
+            if ply < 128 { ctx.stack[ply].current_move = m; }
+            let score = -quiescence(board, ctx, -beta, -alpha, ply + 1, qs_ply + 1);
+            board.unmake_move(m, &undo, ctx.z);
+
+            if ctx.stopped { return 0; }
+            if score >= beta { return score; }
+            if score > alpha { alpha = score; }
+        }
+
+        if legal_moves == 0 {
+            return -(SCORE_MATE - ply as Score);
+        }
+        return alpha;
+    }
+
+    // Normal quiescence: captures only. In-check nodes are handled above with
+    // a small evasion cap, because standing pat while in check is illegal.
     let stand_pat = evaluate(board, &EvalContext { atk: ctx.atk });
     if stand_pat >= beta { return stand_pat; }
     if stand_pat > alpha { alpha = stand_pat; }
@@ -859,6 +899,8 @@ fn quiescence(board: &mut Board, ctx: &mut SearchContext,
         let is_capture = cap_piece != PIECE_NONE || move_flags(m) == MF_EN_PASSANT;
         let cap_value = if cap_piece != PIECE_NONE {
             piece_type(cap_piece).material_value()
+        } else if move_flags(m) == MF_EN_PASSANT {
+            PieceType::Pawn.material_value()
         } else {
             0
         };
@@ -1076,4 +1118,53 @@ fn is_insufficient_material(board: &Board) -> bool {
         if (bishops | knights).count_ones() == 1 { return true; }
     }
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tt::TranspositionTable;
+    use std::sync::atomic::AtomicBool;
+
+    fn test_context<'a>(
+        atk: &'a AttackTables,
+        z: &'a Zobrist,
+        tt: &'a mut TranspositionTable,
+        limits: Limits,
+        stop: &'a AtomicBool,
+    ) -> SearchContext<'a> {
+        SearchContext::new(atk, z, tt, limits, Vec::new(), 0, stop)
+    }
+
+    #[test]
+    fn node_limit_is_checked_without_4096_node_granularity() {
+        let atk = AttackTables::init();
+        let z = Zobrist::new();
+        let mut tt = TranspositionTable::new(1);
+        let stop = AtomicBool::new(false);
+        let limits = Limits { max_depth: 8, nodes: 1, ..Limits::default() };
+        let mut ctx = test_context(&atk, &z, &mut tt, limits, &stop);
+        let mut board = Board::startpos();
+
+        let result = search(&mut board, &mut ctx);
+
+        assert_eq!(result.nodes, 1);
+        assert_eq!(result.depth, 0);
+        assert!(ctx.stopped);
+        assert_ne!(result.best_move, MOVE_NONE);
+    }
+
+    #[test]
+    fn quiescence_reports_checkmate_instead_of_standing_pat() {
+        let atk = AttackTables::init();
+        let z = Zobrist::new();
+        let mut tt = TranspositionTable::new(1);
+        let stop = AtomicBool::new(false);
+        let mut ctx = test_context(&atk, &z, &mut tt, Limits::default(), &stop);
+        let mut board = Board::from_fen("7k/6Q1/6K1/8/8/8/8/8 b - - 0 1").unwrap();
+
+        let score = quiescence(&mut board, &mut ctx, -SCORE_INF, SCORE_INF, 0, 0);
+
+        assert_eq!(score, -SCORE_MATE);
+    }
 }
