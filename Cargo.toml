@@ -1,0 +1,18 @@
+[package]
+name = "karpov"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "karpov"
+path = "src/main.rs"
+
+[dependencies]
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+
+[profile.dev]

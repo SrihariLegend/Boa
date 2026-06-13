@@ -1,0 +1,23 @@
+# Rust build artifacts
+/target
+
+# Vendored/downloaded tooling and generated outputs
+/tools/cutechess-1.4.0/
+/tools/cutechess-1.4.0.tar.gz
+/tools/cutechess-cli
+/tools/match_results/
+/tools/match_manager/node_modules/
+/tools/match_manager/dist/
+/tools/match_manager/engines/
+/tools/match_manager/matches/
+/tools/analysis_results/
+
+# Python bytecode cache
+__pycache__/
+*.py[cod]
+
+# Local logs and scratch output
+*.log
+
+# Windows download metadata
+*:Zone.Identifier

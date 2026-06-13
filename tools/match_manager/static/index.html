@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Karpov Match Manager</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header>
+  <h1>♚ Karpov Match Manager</h1>
+  <span id="conn-status" class="dot"></span>
+</header>
+
+<main>
+  <!-- ── Sidebar: engine library + new match ── -->
+  <aside>
+    <section class="panel">
+      <h2>Engine Library</h2>
+      <ul id="engine-list"></ul>
+      <form id="snapshot-form" class="stack">
+        <input id="snap-name" placeholder="snapshot name (e.g. baseline)" required>
+        <input id="snap-note" placeholder="note (optional)">
+        <button type="submit" id="snap-btn">📸 Snapshot current build</button>
+      </form>
+      <details>
+        <summary>Import existing binary</summary>
+        <form id="import-form" class="stack">
+          <input id="import-name" placeholder="name" required>
+          <input id="import-path" placeholder="/path/to/binary" required>
+          <button type="submit">Import</button>
+        </form>
+      </details>
+    </section>
+
+    <section class="panel">
+      <h2>New Match</h2>
+      <form id="match-form" class="stack">
+        <label>Engine A (White in game 1)
+          <select id="engine-a"></select>
+          <input id="elo-a" class="elo-input hidden" type="number" min="1320" max="3190" value="2000" title="Stockfish Elo">
+          <input id="extra-a" placeholder="extra UCI opts: Key=Val, Key=Val">
+        </label>
+        <label>Engine B
+          <select id="engine-b"></select>
+          <input id="elo-b" class="elo-input hidden" type="number" min="1320" max="3190" value="2000" title="Stockfish Elo">
+          <input id="extra-b" placeholder="extra UCI opts: Key=Val, Key=Val">
+        </label>
+        <div class="grid2">
+          <label>Games <input id="set-games" type="number" min="2" step="2" value="100"></label>
+          <label>Time control <input id="set-tc" value="5+0.05"></label>
+          <label>Concurrency <input id="set-concurrency" type="number" min="1" max="24" value="20"></label>
+          <label>Hash (MB) <input id="set-hash" type="number" min="1" value="128"></label>
+        </div>
+        <label class="check"><input id="set-openings" type="checkbox" checked> Use openings book (random EPD)</label>
+        <label class="check"><input id="set-adjudication" type="checkbox" checked> Adjudicate draws &amp; resigns</label>
+        <label class="check"><input id="set-sprt" type="checkbox"> SPRT stopping</label>
+        <div id="sprt-bounds" class="grid2 hidden">
+          <label>elo0 <input id="set-elo0" type="number" value="0"></label>
+          <label>elo1 <input id="set-elo1" type="number" value="5"></label>
+        </div>
+        <button type="submit" class="primary">▶ Start match</button>
+      </form>
+    </section>
+  </aside>
+
+  <!-- ── Content: matches list / match detail ── -->
+  <div id="content">
+    <section id="matches-view">
+      <h2>Matches</h2>
+      <div id="match-list"></div>
+    </section>
+
+    <section id="detail-view" class="hidden">
+      <div class="detail-header">
+        <button id="back-btn">← Back</button>
+        <h2 id="detail-title"></h2>
+        <button id="stop-btn" class="danger hidden">■ Stop</button>
+        <button id="delete-btn" class="danger hidden">🗑 Delete</button>
+      </div>
+      <div id="detail-stats"></div>
+      <div id="detail-bar"></div>
+      <h3>Games</h3>
+      <table id="games-table">
+        <thead><tr><th>#</th><th>White</th><th>Black</th><th>Result</th><th>Plies</th><th>Termination</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </section>
+  </div>
+</main>
+
+<!-- ── Replay modal ── -->
+<div id="replay-modal" class="modal hidden">
+  <div class="modal-box">
+    <div class="modal-head">
+      <span id="replay-title"></span>
+      <button id="replay-close">✕</button>
+    </div>
+    <div class="replay-body">
+      <div>
+        <div id="board"></div>
+        <div class="replay-controls">
+          <button id="rp-first">⏮</button>
+          <button id="rp-prev">◀</button>
+          <span id="rp-pos">0 / 0</span>
+          <button id="rp-next">▶</button>
+          <button id="rp-last">⏭</button>
+        </div>
+      </div>
+      <ol id="move-list"></ol>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="hidden"></div>
+<script src="/app.js"></script>
+</body>
+</html>
