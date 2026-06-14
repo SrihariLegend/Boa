@@ -1,9 +1,9 @@
 // ============================================================
-// search.rs — Alpha-beta search with Karpov-style pruning policy
+// search.rs — Alpha-beta search with Boa-style pruning policy
 //
 // Core algorithm: PVS (Principal Variation Search) with iterative deepening.
 //
-// Karpov-style search modifications:
+// Boa-style search modifications:
 //   1. Move ordering: restriction score boosts moves that reduce opponent mobility
 //   2. Positional mode detection: when position is "quiet" (low tactics),
 //      we reduce LMR aggressiveness and allow quiet moves to breathe
@@ -897,7 +897,7 @@ fn alpha_beta(
     }
     let improving = ply >= 2 && ply < 128 && static_eval > ctx.stack[ply - 2].static_eval;
 
-    // ---- Positional mode detection (the Karpov adaptation) ----
+    // ---- Positional mode detection (the Boa adaptation) ----
     let squeeze_mode = !in_check && is_squeeze_position(board, ctx.atk);
 
     // ---- Pruning heuristics (skip in check, PV, squeeze mode) ----
@@ -918,7 +918,7 @@ fn alpha_beta(
             return static_eval - rfp_margin;
         }
 
-        // Null move pruning — DISABLED in squeeze mode (critical Karpov adaptation)
+        // Null move pruning — DISABLED in squeeze mode (critical Boa adaptation)
         if let Some(null_score) =
             try_null_move(board, ctx, beta, depth, ply, static_eval, squeeze_mode)
         {
@@ -1258,7 +1258,7 @@ fn score_captures(board: &Board, ctx: &SearchContext, list: &mut MoveList) {
     }
 }
 
-/// Karpov restriction bonus for move ordering
+/// Boa restriction bonus for move ordering
 fn restriction_move_score(board: &Board, _atk: &AttackTables, m: Move) -> i32 {
     let to = move_to(m);
     let mover = board.sq_piece[move_from(m) as usize];
@@ -1294,7 +1294,7 @@ fn centrality_score(sq: Square) -> i32 {
 }
 
 // ============================================================
-// Section 5: Karpov-specific search helpers
+// Section 5: Boa-specific search helpers
 // ============================================================
 
 fn is_squeeze_position(board: &Board, atk: &AttackTables) -> bool {
@@ -1448,7 +1448,7 @@ fn compute_lmr_reduction(
     }
     ctx.stats.lmr_attempts += 1;
     let mut base_r = lmr_reduction(depth, moves_searched);
-    // Karpov adaptation: reduce less in squeeze (positional grinding)
+    // Boa adaptation: reduce less in squeeze (positional grinding)
     if squeeze_mode {
         base_r = (base_r - 1).max(0);
     }

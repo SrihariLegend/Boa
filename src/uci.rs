@@ -158,7 +158,7 @@ pub fn run() {
 
     let mut board = Board::startpos();
     let mut position_history: Vec<u64> = Vec::new();
-    let mut contempt = 20i32; // draw avoidance — Karpov never seeks draws (positive = avoid draws for root side)
+    let mut contempt = 20i32; // draw avoidance — Boa never seeks draws (positive = avoid draws for root side)
 
     // Input thread: the search blocks the main thread, so "stop"/"quit" must
     // be seen by a reader thread that flips the stop flag immediately.
@@ -194,7 +194,7 @@ pub fn run() {
         let mut tokens = line.split_whitespace();
         match tokens.next() {
             Some("uci") => {
-                println!("id name Karpov v2.0");
+                println!("id name Boa v2.0");
                 println!("id author Dirac");
                 println!("option name Hash type spin default 128 min 1 max 4096");
                 println!("option name Contempt type spin default 20 min -100 max 100");

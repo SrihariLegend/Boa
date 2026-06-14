@@ -1,4 +1,4 @@
-// karpov — a Karpov-style chess engine
+// boa — a Boa-style chess engine
 // Architecture: Bitboard move generation → Alpha-Beta search with style-aware pruning → NNUE-ready evaluation
 //
 // Style philosophy: Hunt for positions where opponent freedom approaches zero.

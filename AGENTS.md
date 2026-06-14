@@ -2,13 +2,13 @@
 
 ## Project Structure & Module Organization
 
-Karpov is a UCI chess engine written in Rust. Core engine code lives in `src/`: `main.rs` starts the UCI loop, `uci.rs` handles protocol commands, `board.rs` and `movegen.rs` model positions and legal moves, `search.rs` contains alpha-beta search, `eval.rs` contains evaluation, and `tt.rs` implements the transposition table. Reference game archives are in `games/`. Tooling lives under `tools/`, including `tools/openings.epd` and the TypeScript terminal Match Manager in `tools/match_manager/src/`.
+Boa is a UCI chess engine written in Rust. Core engine code lives in `src/`: `main.rs` starts the UCI loop, `uci.rs` handles protocol commands, `board.rs` and `movegen.rs` model positions and legal moves, `search.rs` contains alpha-beta search, `eval.rs` contains evaluation, and `tt.rs` implements the transposition table. Reference game archives are in `games/`. Tooling lives under `tools/`, including `tools/openings.epd` and the TypeScript terminal Match Manager in `tools/match_manager/src/`.
 
 ## Build, Test, and Development Commands
 
-- `cargo build --release`: build the optimized engine at `target/release/karpov`.
+- `cargo build --release`: build the optimized engine at `target/release/boa`.
 - `cargo test`: run Rust unit tests embedded in engine modules.
-- `./target/release/karpov`: start the UCI engine; useful commands include `uci`, `isready`, `go depth 8`, `bench 10`, and `perft 5`.
+- `./target/release/boa`: start the UCI engine; useful commands include `uci`, `isready`, `go depth 8`, `bench 10`, and `perft 5`.
 - `cd tools/match_manager && npm install`: install Match Manager dependencies.
 - `cd tools/match_manager && npm run build`: compile TypeScript to `dist/`.
 - `cd tools/match_manager && npm run check`: run TypeScript type checks without emitting files.
@@ -30,4 +30,4 @@ Recent commits use short imperative subjects such as `Fix search edge cases` and
 
 ## Security & Configuration Tips
 
-Do not commit generated outputs such as `target/`, `tools/match_manager/dist/`, or local match state. Match Manager depends on `tools/cutechess-cli`, `tools/openings.epd`, and `target/release/karpov`; keep local paths configurable and avoid hard-coding machine-specific locations.
+Do not commit generated outputs such as `target/`, `tools/match_manager/dist/`, or local match state. Match Manager depends on `tools/cutechess-cli`, `tools/openings.epd`, and `target/release/boa`; keep local paths configurable and avoid hard-coding machine-specific locations.

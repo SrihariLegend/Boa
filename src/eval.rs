@@ -1,5 +1,5 @@
 // ============================================================
-// eval.rs — Karpov-style evaluation
+// eval.rs — Boa-style evaluation
 //
 // Philosophy: measure how much freedom the opponent has.
 // When opponent freedom approaches zero, mistakes become inevitable.
@@ -9,14 +9,14 @@
 // Structure:
 //   1. Piece-square tables (midgame + endgame, tapered)
 //   2. Pawn structure (passed, isolated, doubled, chains)
-//   3. Mobility — our mobility bonus + opponent mobility penalty (the Karpov squeeze)
+//   3. Mobility — our mobility bonus + opponent mobility penalty (the Boa squeeze)
 //   4. Piece activity (outposts, rooks on open files, bishop pair)
 //   5. King safety
-//   6. Freedom metric (signature Karpov term)
-//   7. Space evaluation (Karpov space advantage)
-//   8. Trade-down bonus (simplify when ahead — Karpov technique)
+//   6. Freedom metric (signature Boa term)
+//   7. Space evaluation (Boa space advantage)
+//   8. Trade-down bonus (simplify when ahead — Boa technique)
 //   9. Bad bishop detection (bishop blocked by own pawns)
-//  10. Weak square complex (holes in pawn structure — Karpov exploitation)
+//  10. Weak square complex (holes in pawn structure — Boa exploitation)
 //  11. Good knight vs bad bishop (minor piece imbalance)
 //  12. Prophylaxis (opponent pawn break prevention)
 //  13. Piece coordination (harmony between pieces)
@@ -120,7 +120,7 @@ const SQUEEZE_MODERATE_BASE: i32 = 10; // 6-15 moves: 30 + (15-mob)*3
 const SQUEEZE_MODERATE_PER_MOVE: i32 = 1;
 
 /// Space evaluation: count squares controlled behind our pawn chain.
-/// Karpov was famous for gradually gaining space advantage.
+/// Boa was famous for gradually gaining space advantage.
 /// Space is more valuable in the middlegame. [NEEDS TUNING]
 const SPACE_WEIGHT_MG: i32 = 2;
 const SPACE_WEIGHT_EG: i32 = 0;
@@ -128,12 +128,12 @@ const SPACE_WEIGHT_EG: i32 = 0;
 const SPACE_CENTER_FILES: Bb = 0x3C3C3C3C3C3C3C3C; // files C through F
 
 /// Trade-down bonus: when ahead in material, reward exchanging pieces.
-/// Karpov would grind down into won endgames by simplifying.
+/// Boa would grind down into won endgames by simplifying.
 /// Bonus per centipawn of material advantage, scaled by pieces traded. [NEEDS TUNING]
 const TRADE_DOWN_BONUS_PER_100CP: i32 = 15;
 
 /// Bad bishop: penalty per own pawn on same color squares as bishop.
-/// A bishop blocked by its own pawns is a Karpov-style weakness to exploit. [NEEDS TUNING]
+/// A bishop blocked by its own pawns is a Boa-style weakness to exploit. [NEEDS TUNING]
 const BAD_BISHOP_PENALTY_PER_PAWN: (i32, i32) = (-3, -5);
 
 /// Rook behind passed pawn bonus. Rooks belong behind passers (Tarrasch rule).
@@ -141,7 +141,7 @@ const BAD_BISHOP_PENALTY_PER_PAWN: (i32, i32) = (-3, -5);
 const ROOK_BEHIND_PASSER_BONUS: (i32, i32) = (5, 10);
 
 /// King centralization in endgame: bonus per rank/file closer to center.
-/// Karpov's endgame technique relied on active king. [NEEDS TUNING]
+/// Boa's endgame technique relied on active king. [NEEDS TUNING]
 const KING_CENTRALIZATION_EG: i32 = 15;
 
 /// Connected passed pawn bonus multiplier.
@@ -149,7 +149,7 @@ const KING_CENTRALIZATION_EG: i32 = 15;
 const CONNECTED_PASSER_BONUS: (i32, i32) = (0, 5);
 
 /// Passed pawn path clear bonus: extra bonus when no piece blocks the passer's path.
-/// Karpov converted passers by ensuring the path was clear. [NEEDS TUNING]
+/// Boa converted passers by ensuring the path was clear. [NEEDS TUNING]
 const PASSER_PATH_CLEAR_BONUS: (i32, i32) = (2, 15);
 
 /// Passed pawn king proximity bonus: bonus when friendly king is near the passer.
@@ -162,7 +162,7 @@ const PASSER_ENEMY_KING_DIST_EG: i32 = 10;
 
 /// Weak square bonus: reward for controlling holes in opponent's pawn structure.
 /// A "hole" is a square that can never be defended by enemy pawns.
-/// Karpov was the supreme exploiter of weak-square complexes. [NEEDS TUNING]
+/// Boa was the supreme exploiter of weak-square complexes. [NEEDS TUNING]
 const WEAK_SQUARE_CONTROL_BONUS: (i32, i32) = (1, 1);
 
 /// Weak square occupation bonus: knight on a hole is especially strong.
@@ -170,7 +170,7 @@ const WEAK_SQUARE_CONTROL_BONUS: (i32, i32) = (1, 1);
 const WEAK_SQUARE_KNIGHT_BONUS: (i32, i32) = (20, 9);
 
 /// Good knight vs bad bishop: bonus when we have a knight and they have a
-/// bishop in a closed/semi-closed position. Karpov engineered these imbalances.
+/// bishop in a closed/semi-closed position. Boa engineered these imbalances.
 /// Triggered when center has 4+ pawns (closed). [NEEDS TUNING]
 const KNIGHT_VS_BISHOP_CLOSED_BONUS: (i32, i32) = (20, 25);
 
@@ -180,11 +180,11 @@ const CLOSED_CENTER_PAWN_THRESHOLD: u32 = 4;
 
 /// Prophylaxis: penalty for each available enemy pawn break.
 /// A pawn break is an enemy pawn that can advance to challenge our pawn chain.
-/// Karpov's #1 trait: prevent opponent's plans before they happen. [NEEDS TUNING]
+/// Boa's #1 trait: prevent opponent's plans before they happen. [NEEDS TUNING]
 const ENEMY_PAWN_BREAK_PENALTY: (i32, i32) = (-4, -2);
 
 /// Piece coordination: bonus when our pieces mutually defend each other.
-/// Karpov's pieces worked as a harmonious unit. [NEEDS TUNING]
+/// Boa's pieces worked as a harmonious unit. [NEEDS TUNING]
 const PIECE_COORDINATION_BONUS: (i32, i32) = (5, 0);
 
 /// Piece coordination: bonus when multiple pieces control the same central square.
@@ -192,7 +192,7 @@ const PIECE_COORDINATION_BONUS: (i32, i32) = (5, 0);
 const CENTRAL_CONTROL_OVERLAP_BONUS: (i32, i32) = (1, 8);
 
 // ---- NEW DATA-DRIVEN EVAL CONSTANTS ----
-// Based on analysis of ~7K master games (Karpov, Petrosian, Keres)
+// Based on analysis of ~7K master games (Boa, Petrosian, Keres)
 
 /// Pieces in center: bonus per non-pawn piece on d4/d5/e4/e5.
 /// Effect size +0.422 — one of the strongest positional predictors. [NEEDS TUNING]
@@ -624,7 +624,7 @@ fn outpost_bonus(sq: Square, color: Color, their_pawn_attacks: Bb, board: &Board
 }
 
 // ============================================================
-// Section 5: The Karpov Freedom Metric
+// Section 5: The Boa Freedom Metric
 // ============================================================
 
 /// Total pseudo-legal mobility for one side (pawns incl. pushes/captures,
@@ -716,11 +716,11 @@ fn freedom_metric(board: &Board, ctx: &EvalContext) -> i32 {
 }
 
 // ============================================================
-// Section 5b: Space evaluation (Karpov signature)
+// Section 5b: Space evaluation (Boa signature)
 // ============================================================
 //
 // Space = squares behind your pawn chain that you control.
-// Karpov would gradually push pawns forward, claiming territory,
+// Boa would gradually push pawns forward, claiming territory,
 // then use the space advantage to maneuver pieces optimally.
 
 fn space_evaluation(board: &Board) -> (i32, i32) {
@@ -754,12 +754,12 @@ fn space_evaluation(board: &Board) -> (i32, i32) {
 }
 
 // ============================================================
-// Section 5c: Trade-down bonus (Karpov endgame technique)
+// Section 5c: Trade-down bonus (Boa endgame technique)
 // ============================================================
 //
 // When ahead in material, it's advantageous to trade pieces (not pawns).
 // This reduces the opponent's counterplay chances and makes the material
-// advantage more decisive. Karpov was a master of this technique.
+// advantage more decisive. Boa was a master of this technique.
 
 fn trade_down_bonus(board: &Board) -> (i32, i32) {
     let w_mat = board.non_pawn_material(Color::White);
@@ -786,7 +786,7 @@ fn trade_down_bonus(board: &Board) -> (i32, i32) {
 // ============================================================
 //
 // A bishop is "bad" when many of its own pawns are on the same
-// color squares, blocking its diagonals. Karpov excelled at
+// color squares, blocking its diagonals. Boa excelled at
 // exploiting bad bishops in his opponents' positions.
 
 fn bad_bishop_eval(board: &Board) -> (i32, i32) {
@@ -1167,7 +1167,7 @@ fn king_safety(board: &Board, ctx: &EvalContext) -> (i32, i32) {
         mg += sign * (-penalty);
 
         // King centralization bonus (endgame only)
-        // Karpov's endgame mastery relied on active king placement
+        // Boa's endgame mastery relied on active king placement
         let king_rank = sq_rank(king_sq) as i32;
         let center_dist = (3 - king_file as i32)
             .abs()
@@ -1180,12 +1180,12 @@ fn king_safety(board: &Board, ctx: &EvalContext) -> (i32, i32) {
 }
 
 // ============================================================
-// Section 8: Weak square complex (Karpov exploitation)
+// Section 8: Weak square complex (Boa exploitation)
 // ============================================================
 //
 // A "weak square" (hole) is a square that can never be defended by
 // enemy pawns because the adjacent file pawns have advanced past it
-// or don't exist. Karpov would identify these holes and plant pieces
+// or don't exist. Boa would identify these holes and plant pieces
 // on them, creating permanent positional advantages.
 
 /// Chebyshev (king) distance between two squares
@@ -1236,11 +1236,11 @@ fn weak_square_eval(board: &Board, _ctx: &EvalContext) -> (i32, i32) {
 }
 
 // ============================================================
-// Section 9: Good knight vs bad bishop (Karpov imbalance)
+// Section 9: Good knight vs bad bishop (Boa imbalance)
 // ============================================================
 //
 // In closed positions, knights are superior to bishops because
-// bishops need open diagonals. Karpov frequently engineered positions
+// bishops need open diagonals. Boa frequently engineered positions
 // where he had the knight and his opponent had a bad bishop.
 
 fn knight_vs_bishop_eval(board: &Board) -> (i32, i32) {
@@ -1310,7 +1310,7 @@ fn count_pawn_breaks(color: Color, our_pawns: Bb, their_pawns: Bb, occ_all: Bb) 
 }
 
 // ============================================================
-// Section 10: Prophylaxis evaluation (Karpov's #1 trait)
+// Section 10: Prophylaxis evaluation (Boa's #1 trait)
 // ============================================================
 //
 // Prophylaxis = preventing opponent's plans. In evaluation terms,
