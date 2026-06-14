@@ -15,11 +15,11 @@
 
 #![allow(dead_code)]
 
-use crate::types::*;
 use crate::board::{Board, Zobrist};
-use crate::movegen::{AttackTables, MoveList, gen_moves, gen_captures};
 use crate::eval::{evaluate, EvalContext};
-use crate::tt::{TranspositionTable, Bound, score_to_tt, score_from_tt};
+use crate::movegen::{gen_captures, gen_moves, AttackTables, MoveList};
+use crate::tt::{score_from_tt, score_to_tt, Bound, TranspositionTable};
+use crate::types::*;
 
 // ---- Search tuning constants ----
 // Sources: Stockfish (SF), Chess Programming Wiki (CPW), or marked [NEEDS TUNING].
@@ -90,6 +90,14 @@ const MOVE_OVERHEAD_MS: i64 = 30;
 /// Average mobility in chess is ~30-35 moves. 12 represents severely restricted. [NEEDS TUNING]
 const SQUEEZE_MOBILITY_THRESHOLD: u32 = 12;
 
+/// Restriction extension: quiet moves that cut opponent mobility by at least
+/// this much are searched one ply deeper when the resulting mobility is low.
+const RESTRICTION_EXTENSION_MOBILITY_DROP: u32 = 4;
+
+/// Restriction extension: do not extend ordinary developing moves that merely
+/// trim mobility from a still-free position.
+const RESTRICTION_EXTENSION_MAX_MOBILITY: u32 = 18;
+
 /// Late Move Pruning: max moves to try at each depth before pruning quiet moves.
 /// At depth d, we try at most LMP_BASE + LMP_MULTIPLIER * d * d quiet moves.
 const LMP_BASE: usize = 3;
@@ -116,7 +124,6 @@ const CAP_HISTORY_DIVISOR: i32 = 16;
 /// Quiescence check evasion cap. In-check stand-pat is illegal, but unlimited
 /// evasion recursion was too expensive; this keeps the tactical fix bounded.
 const QS_CHECK_EVASION_MAX_PLY: usize = 2;
-
 
 // ---- Search statistics (diagnostic) ----
 
@@ -149,40 +156,94 @@ pub struct SearchStats {
     pub iid_triggers: u64,
     pub iid_successes: u64,
 
+    pub restriction_extensions: u64,
 }
 
 impl SearchStats {
     pub fn report(&self) -> String {
         let total = self.nodes + self.qnodes;
-        let q_pct = if total > 0 { self.qnodes as f64 / total as f64 * 100.0 } else { 0.0 };
-        let tt_hit_pct = if self.tt_probes > 0 { self.tt_hits as f64 / self.tt_probes as f64 * 100.0 } else { 0.0 };
-        let first_cut_pct = if self.beta_cutoffs > 0 { self.first_move_cutoffs as f64 / self.beta_cutoffs as f64 * 100.0 } else { 0.0 };
-        let null_cut_pct = if self.null_move_tries > 0 { self.null_move_cutoffs as f64 / self.null_move_tries as f64 * 100.0 } else { 0.0 };
-        let lmr_actual_pct = if self.lmr_attempts > 0 { self.lmr_actual_reductions as f64 / self.lmr_attempts as f64 * 100.0 } else { 0.0 };
-        let lmr_re_pct = if self.lmr_actual_reductions > 0 { self.lmr_re_searches as f64 / self.lmr_actual_reductions as f64 * 100.0 } else { 0.0 };
+        let q_pct = if total > 0 {
+            self.qnodes as f64 / total as f64 * 100.0
+        } else {
+            0.0
+        };
+        let tt_hit_pct = if self.tt_probes > 0 {
+            self.tt_hits as f64 / self.tt_probes as f64 * 100.0
+        } else {
+            0.0
+        };
+        let first_cut_pct = if self.beta_cutoffs > 0 {
+            self.first_move_cutoffs as f64 / self.beta_cutoffs as f64 * 100.0
+        } else {
+            0.0
+        };
+        let null_cut_pct = if self.null_move_tries > 0 {
+            self.null_move_cutoffs as f64 / self.null_move_tries as f64 * 100.0
+        } else {
+            0.0
+        };
+        let lmr_actual_pct = if self.lmr_attempts > 0 {
+            self.lmr_actual_reductions as f64 / self.lmr_attempts as f64 * 100.0
+        } else {
+            0.0
+        };
+        let lmr_re_pct = if self.lmr_actual_reductions > 0 {
+            self.lmr_re_searches as f64 / self.lmr_actual_reductions as f64 * 100.0
+        } else {
+            0.0
+        };
         let total_see = self.see_win_caps + self.see_equal_caps + self.see_loss_caps;
-        let see_win_pct = if total_see > 0 { self.see_win_caps as f64 / total_see as f64 * 100.0 } else { 0.0 };
-        let see_eq_pct = if total_see > 0 { self.see_equal_caps as f64 / total_see as f64 * 100.0 } else { 0.0 };
-        let see_loss_pct = if total_see > 0 { self.see_loss_caps as f64 / total_see as f64 * 100.0 } else { 0.0 };
+        let see_win_pct = if total_see > 0 {
+            self.see_win_caps as f64 / total_see as f64 * 100.0
+        } else {
+            0.0
+        };
+        let see_eq_pct = if total_see > 0 {
+            self.see_equal_caps as f64 / total_see as f64 * 100.0
+        } else {
+            0.0
+        };
+        let see_loss_pct = if total_see > 0 {
+            self.see_loss_caps as f64 / total_see as f64 * 100.0
+        } else {
+            0.0
+        };
         format!(
             "nodes {} qnodes {} ({:.1}%) tt_probes {} tt_hits {} ({:.1}%) tt_cuts {} \
              beta_cuts {} first_move_cuts {} ({:.1}%) \
              null_tries {} null_cuts {} ({:.1}%) \
              rfp_cuts {} lmr_cand {} lmr_reduced {} ({:.1}%) lmr_re {} ({:.1}%) \
              see+ {} ({:.1}%) see= {} ({:.1}%) see- {} ({:.1}%) see-searched {} \
-             iid {} iid_ok {}",
-            self.nodes, self.qnodes, q_pct,
-            self.tt_probes, self.tt_hits, tt_hit_pct, self.tt_cutoffs,
-            self.beta_cutoffs, self.first_move_cutoffs, first_cut_pct,
-            self.null_move_tries, self.null_move_cutoffs, null_cut_pct,
+             iid {} iid_ok {} restrict_ext {}",
+            self.nodes,
+            self.qnodes,
+            q_pct,
+            self.tt_probes,
+            self.tt_hits,
+            tt_hit_pct,
+            self.tt_cutoffs,
+            self.beta_cutoffs,
+            self.first_move_cutoffs,
+            first_cut_pct,
+            self.null_move_tries,
+            self.null_move_cutoffs,
+            null_cut_pct,
             self.rfp_cutoffs,
-            self.lmr_attempts, self.lmr_actual_reductions, lmr_actual_pct,
-            self.lmr_re_searches, lmr_re_pct,
-            self.see_win_caps, see_win_pct,
-            self.see_equal_caps, see_eq_pct,
-            self.see_loss_caps, see_loss_pct,
+            self.lmr_attempts,
+            self.lmr_actual_reductions,
+            lmr_actual_pct,
+            self.lmr_re_searches,
+            lmr_re_pct,
+            self.see_win_caps,
+            see_win_pct,
+            self.see_equal_caps,
+            see_eq_pct,
+            self.see_loss_caps,
+            see_loss_pct,
             self.see_loss_searched,
-            self.iid_triggers, self.iid_successes,
+            self.iid_triggers,
+            self.iid_successes,
+            self.restriction_extensions,
         )
     }
 }
@@ -191,26 +252,26 @@ impl SearchStats {
 
 #[derive(Clone, Copy)]
 pub struct Limits {
-    pub max_depth:   u32,
-    pub nodes:       u64, // 0 = unlimited
-    pub move_time:   u64, // milliseconds, 0 = unlimited
-    pub wtime:       i64,
-    pub btime:       i64,
-    pub winc:        i64,
-    pub binc:        i64,
+    pub max_depth: u32,
+    pub nodes: u64,     // 0 = unlimited
+    pub move_time: u64, // milliseconds, 0 = unlimited
+    pub wtime: i64,
+    pub btime: i64,
+    pub winc: i64,
+    pub binc: i64,
     pub moves_to_go: i32,
 }
 
 impl Default for Limits {
     fn default() -> Self {
         Limits {
-            max_depth:   64,
-            nodes:       0,
-            move_time:   0,
-            wtime:       0,
-            btime:       0,
-            winc:        0,
-            binc:        0,
+            max_depth: 64,
+            nodes: 0,
+            move_time: 0,
+            wtime: 0,
+            btime: 0,
+            winc: 0,
+            binc: 0,
             moves_to_go: 0,
         }
     }
@@ -220,19 +281,19 @@ impl Default for Limits {
 
 pub struct SearchResult {
     pub best_move: Move,
-    pub score:     Score,
-    pub depth:     u32,
-    pub nodes:     u64,
-    pub pv:        Vec<Move>,
+    pub score: Score,
+    pub depth: u32,
+    pub nodes: u64,
+    pub pv: Vec<Move>,
 }
 
 // ---- Search context ----
 
 pub struct SearchContext<'a> {
-    pub atk:     &'a AttackTables,
-    pub z:       &'a Zobrist,
-    pub tt:      &'a mut TranspositionTable,
-    pub limits:  Limits,
+    pub atk: &'a AttackTables,
+    pub z: &'a Zobrist,
+    pub tt: &'a mut TranspositionTable,
+    pub limits: Limits,
     pub start_ms: u64,
     pub contempt: i32,
     pub root_color: Color,
@@ -246,9 +307,9 @@ pub struct SearchContext<'a> {
     pub history_hashes: Vec<u64>,
 
     // Per-search stats
-    pub nodes:   u64,
+    pub nodes: u64,
     pub stopped: bool,
-    pub root_depth: i32,      // Current iteration depth (for check extension cap)
+    pub root_depth: i32, // Current iteration depth (for check extension cap)
 
     // Killer moves: [ply][slot]
     pub killers: [[Move; 2]; 128],
@@ -263,7 +324,7 @@ pub struct SearchContext<'a> {
     pub cap_history: [[[[i32; 6]; 64]; 6]; 2],
 
     // Stack info per ply
-    pub stack:   [PlyInfo; 128],
+    pub stack: [PlyInfo; 128],
 
     // Diagnostic stats
     pub stats: SearchStats,
@@ -272,16 +333,25 @@ pub struct SearchContext<'a> {
 #[derive(Clone, Copy, Default)]
 pub struct PlyInfo {
     pub current_move: Move,
-    pub static_eval:  Score,
+    pub static_eval: Score,
 }
 
 impl<'a> SearchContext<'a> {
-    pub fn new(atk: &'a AttackTables, z: &'a Zobrist,
-               tt: &'a mut TranspositionTable, limits: Limits,
-               history_hashes: Vec<u64>, contempt: i32,
-               stop_flag: &'a std::sync::atomic::AtomicBool) -> Self {
+    pub fn new(
+        atk: &'a AttackTables,
+        z: &'a Zobrist,
+        tt: &'a mut TranspositionTable,
+        limits: Limits,
+        history_hashes: Vec<u64>,
+        contempt: i32,
+        stop_flag: &'a std::sync::atomic::AtomicBool,
+    ) -> Self {
         SearchContext {
-            atk, z, tt, limits, stop_flag,
+            atk,
+            z,
+            tt,
+            limits,
+            stop_flag,
             start_ms: now_ms(),
             root_depth: 0,
             contempt,
@@ -293,15 +363,19 @@ impl<'a> SearchContext<'a> {
             history: [[[0i32; 64]; 64]; 2],
             counter: [[MOVE_NONE; 64]; 64],
             cap_history: [[[[0i32; 6]; 64]; 6]; 2],
-            stack:   [PlyInfo::default(); 128],
+            stack: [PlyInfo::default(); 128],
             stats: SearchStats::default(),
         }
     }
 
-    pub fn elapsed_ms(&self) -> u64 { now_ms() - self.start_ms }
+    pub fn elapsed_ms(&self) -> u64 {
+        now_ms() - self.start_ms
+    }
 
     fn should_stop(&mut self) -> bool {
-        if self.stopped { return true; }
+        if self.stopped {
+            return true;
+        }
         if self.limits.nodes > 0 && self.nodes >= self.limits.nodes {
             self.stopped = true;
             return true;
@@ -328,9 +402,15 @@ impl<'a> SearchContext<'a> {
         } else {
             (self.limits.btime, self.limits.binc)
         };
-        if time <= 0 { return (0, 0); }
+        if time <= 0 {
+            return (0, 0);
+        }
         let usable = (time - MOVE_OVERHEAD_MS).max(MIN_MOVE_TIME_MS);
-        let mtg = if self.limits.moves_to_go > 0 { self.limits.moves_to_go as i64 } else { DEFAULT_MOVES_TO_GO };
+        let mtg = if self.limits.moves_to_go > 0 {
+            self.limits.moves_to_go as i64
+        } else {
+            DEFAULT_MOVES_TO_GO
+        };
         let soft = (usable / mtg + inc / 2).clamp(MIN_MOVE_TIME_MS, usable) as u64;
         let hard = (soft * HARD_TIME_MULTIPLIER as i64 as u64)
             .min(soft + HARD_TIME_ADDITIVE_CAP)
@@ -345,13 +425,20 @@ impl<'a> SearchContext<'a> {
     /// so this is O(halfmove) instead of O(game length) per node.
     fn is_repetition(&self, board: &Board) -> bool {
         let lookback = (board.halfmove as usize).min(self.history_hashes.len());
-        self.history_hashes.iter().rev().take(lookback).any(|&h| h == board.hash)
+        self.history_hashes
+            .iter()
+            .rev()
+            .take(lookback)
+            .any(|&h| h == board.hash)
     }
 }
 
 fn now_ms() -> u64 {
     use std::time::{SystemTime, UNIX_EPOCH};
-    SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis() as u64
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
 }
 
 // ============================================================
@@ -390,13 +477,22 @@ pub fn bench(atk: &AttackTables, z: &Zobrist, depth: u32) {
     let no_stop = std::sync::atomic::AtomicBool::new(false);
     for (i, fen) in BENCH_FENS.iter().enumerate() {
         let mut board = Board::from_fen(fen).unwrap();
-        let limits = Limits { max_depth: depth, move_time: 10_000, ..Limits::default() };
+        let limits = Limits {
+            max_depth: depth,
+            move_time: 10_000,
+            ..Limits::default()
+        };
         let mut ctx = SearchContext::new(atk, z, &mut tt, limits, Vec::new(), 20, &no_stop);
         let result = search(&mut board, &mut ctx);
         total_nodes += result.nodes;
-        eprintln!("bench {}/{}: {} nodes  score {} pv {}",
-            i + 1, BENCH_FENS.len(), result.nodes,
-            result.score, move_name(result.best_move));
+        eprintln!(
+            "bench {}/{}: {} nodes  score {} pv {}",
+            i + 1,
+            BENCH_FENS.len(),
+            result.nodes,
+            result.score,
+            move_name(result.best_move)
+        );
         tt.clear();
     }
 
@@ -432,9 +528,9 @@ pub fn search(board: &mut Board, ctx: &mut SearchContext) -> SearchResult {
         ctx.limits.move_time = hard_limit;
     }
 
-    let mut best_move  = MOVE_NONE;
+    let mut best_move = MOVE_NONE;
     let mut best_score = -SCORE_INF;
-    let mut pv         = Vec::new();
+    let mut pv = Vec::new();
     let mut completed_depth = 0;
 
     for depth in 1..=ctx.limits.max_depth {
@@ -442,12 +538,14 @@ pub fn search(board: &mut Board, ctx: &mut SearchContext) -> SearchResult {
         let mut root_pv = Vec::new();
         let score = aspiration_search(board, ctx, depth, best_score, &mut root_pv);
 
-        if ctx.stopped { break; }
+        if ctx.stopped {
+            break;
+        }
 
         best_score = score;
         if !root_pv.is_empty() {
             best_move = root_pv[0];
-            pv        = root_pv;
+            pv = root_pv;
         }
 
         // Report to UCI
@@ -459,15 +557,26 @@ pub fn search(board: &mut Board, ctx: &mut SearchContext) -> SearchResult {
             format!("cp {}", score)
         };
         let pv_str: String = pv.iter().map(|&m| move_name(m) + " ").collect();
-        println!("info depth {} score {} nodes {} nps {} time {} hashfull {} pv {}",
-                 depth, score_str, ctx.nodes, nps, elapsed,
-                 ctx.tt.hashfull(), pv_str.trim());
+        println!(
+            "info depth {} score {} nodes {} nps {} time {} hashfull {} pv {}",
+            depth,
+            score_str,
+            ctx.nodes,
+            nps,
+            elapsed,
+            ctx.tt.hashfull(),
+            pv_str.trim()
+        );
         let _ = std::io::Write::flush(&mut std::io::stdout());
         completed_depth = depth;
 
         // Time management: stop if we've used our soft budget
-        if time_budget > 0 && ctx.elapsed_ms() >= time_budget { break; }
-        if is_mate_score(score) { break; }
+        if time_budget > 0 && ctx.elapsed_ms() >= time_budget {
+            break;
+        }
+        if is_mate_score(score) {
+            break;
+        }
     }
 
     // Never return MOVE_NONE: if the search was stopped before even depth 1
@@ -487,24 +596,37 @@ pub fn search(board: &mut Board, ctx: &mut SearchContext) -> SearchResult {
         }
     }
 
-    SearchResult { best_move, score: best_score, depth: completed_depth, nodes: ctx.nodes, pv }
+    SearchResult {
+        best_move,
+        score: best_score,
+        depth: completed_depth,
+        nodes: ctx.nodes,
+        pv,
+    }
 }
 
-fn aspiration_search(board: &mut Board, ctx: &mut SearchContext,
-                     depth: u32, prev_score: Score, pv: &mut Vec<Move>) -> Score {
+fn aspiration_search(
+    board: &mut Board,
+    ctx: &mut SearchContext,
+    depth: u32,
+    prev_score: Score,
+    pv: &mut Vec<Move>,
+) -> Score {
     if depth <= ASPIRATION_MIN_DEPTH {
         return alpha_beta(board, ctx, -SCORE_INF, SCORE_INF, depth as i32, 0, true, pv);
     }
     let delta = ASPIRATION_DELTA;
     let mut alpha = (prev_score - delta).max(-SCORE_INF);
-    let mut beta  = (prev_score + delta).min(SCORE_INF);
+    let mut beta = (prev_score + delta).min(SCORE_INF);
     let mut window_expand = 0;
 
     loop {
         let score = alpha_beta(board, ctx, alpha, beta, depth as i32, 0, true, pv);
-        if ctx.stopped { return score; }
+        if ctx.stopped {
+            return score;
+        }
         if score <= alpha {
-            beta  = (alpha + beta) / 2;
+            beta = (alpha + beta) / 2;
             alpha = (alpha - delta * (1 << window_expand)).max(-SCORE_INF);
             window_expand += 1;
         } else if score >= beta {
@@ -513,14 +635,23 @@ fn aspiration_search(board: &mut Board, ctx: &mut SearchContext,
         } else {
             return score;
         }
-        if alpha <= -SCORE_INF && beta >= SCORE_INF { break; }
+        if alpha <= -SCORE_INF && beta >= SCORE_INF {
+            break;
+        }
     }
     alpha_beta(board, ctx, -SCORE_INF, SCORE_INF, depth as i32, 0, true, pv)
 }
 
-
 /// Try TT cutoff for non-PV nodes. Returns Some(score) if we can cut off.
-fn try_tt_cutoff(ctx: &mut SearchContext, hash: u64, depth: i32, alpha: Score, beta: Score, is_pv: bool, ply: usize) -> (Move, Option<Score>) {
+fn try_tt_cutoff(
+    ctx: &mut SearchContext,
+    hash: u64,
+    depth: i32,
+    alpha: Score,
+    beta: Score,
+    is_pv: bool,
+    ply: usize,
+) -> (Move, Option<Score>) {
     ctx.stats.tt_probes += 1;
     let entry = match ctx.tt.probe(hash) {
         Some(e) => e,
@@ -549,23 +680,38 @@ fn try_tt_cutoff(ctx: &mut SearchContext, hash: u64, depth: i32, alpha: Score, b
 
 /// Try null-move pruning. Returns Some(score) if we can cut off.
 fn try_null_move(
-    board: &mut Board, ctx: &mut SearchContext,
-    beta: Score, depth: i32, ply: usize, static_eval: Score,
+    board: &mut Board,
+    ctx: &mut SearchContext,
+    beta: Score,
+    depth: i32,
+    ply: usize,
+    static_eval: Score,
     squeeze_mode: bool,
 ) -> Option<Score> {
     if squeeze_mode || depth < NULL_MOVE_MIN_DEPTH || static_eval < beta {
         return None;
     }
     let our_pieces = board.occ[board.side as usize]
-                     & !board.pieces[board.side as usize][PieceType::Pawn as usize]
-                     & !board.pieces[board.side as usize][PieceType::King as usize];
-    if our_pieces == 0 { return None; }
+        & !board.pieces[board.side as usize][PieceType::Pawn as usize]
+        & !board.pieces[board.side as usize][PieceType::King as usize];
+    if our_pieces == 0 {
+        return None;
+    }
 
     ctx.stats.null_move_tries += 1;
     let r = NULL_MOVE_BASE_R + depth / NULL_MOVE_DEPTH_DIVISOR;
     let undo = board.make_null_move(ctx.z);
     let mut null_pv = Vec::new();
-    let null_score = -alpha_beta(board, ctx, -beta, -beta + 1, depth - r, ply + 1, false, &mut null_pv);
+    let null_score = -alpha_beta(
+        board,
+        ctx,
+        -beta,
+        -beta + 1,
+        depth - r,
+        ply + 1,
+        false,
+        &mut null_pv,
+    );
     board.unmake_null_move(&undo);
 
     if null_score >= beta {
@@ -576,14 +722,23 @@ fn try_null_move(
 }
 
 /// Handle beta cutoff: update killers, history, counter moves.
-fn handle_beta_cutoff(ctx: &mut SearchContext, board: &Board, m: Move, ply: usize, depth: i32, is_capture: bool) {
+fn handle_beta_cutoff(
+    ctx: &mut SearchContext,
+    board: &Board,
+    m: Move,
+    ply: usize,
+    depth: i32,
+    is_capture: bool,
+) {
     if is_capture {
         update_cap_history(ctx, board.side, m, board, depth);
         return;
     }
     update_killers(ctx, ply, m);
     update_history(ctx, board.side, m, depth);
-    if ply == 0 || ply >= 128 { return; }
+    if ply == 0 || ply >= 128 {
+        return;
+    }
     let prev_move = ctx.stack[ply - 1].current_move;
     if prev_move != MOVE_NONE {
         ctx.counter[move_from(prev_move) as usize][move_to(prev_move) as usize] = m;
@@ -592,10 +747,17 @@ fn handle_beta_cutoff(ctx: &mut SearchContext, board: &Board, m: Move, ply: usiz
 
 /// Score a single move for move ordering.
 fn score_single_move(
-    board: &Board, ctx: &SearchContext, m: Move, tt_move: Move,
-    ply: usize, counter: Move, us: usize,
+    board: &Board,
+    ctx: &SearchContext,
+    m: Move,
+    tt_move: Move,
+    ply: usize,
+    counter: Move,
+    us: usize,
 ) -> i32 {
-    if m == tt_move { return 2_000_000; }
+    if m == tt_move {
+        return 2_000_000;
+    }
     if move_flags(m) == MF_PROMOTION {
         return 1_800_000 + move_promo_pt(m).material_value();
     }
@@ -603,10 +765,18 @@ fn score_single_move(
     let cap = board.sq_piece[move_to(m) as usize];
     let is_capture = cap != PIECE_NONE || move_flags(m) == MF_EN_PASSANT;
     if is_capture {
-        let cap_val = if cap != PIECE_NONE { piece_type(cap).material_value() } else { 100 };
+        let cap_val = if cap != PIECE_NONE {
+            piece_type(cap).material_value()
+        } else {
+            100
+        };
         let mov_val = piece_type(board.sq_piece[move_from(m) as usize]).material_value();
         let mover_pt = piece_type(board.sq_piece[move_from(m) as usize]) as usize;
-        let cap_pt = if cap != PIECE_NONE { piece_type(cap) as usize } else { 0 };
+        let cap_pt = if cap != PIECE_NONE {
+            piece_type(cap) as usize
+        } else {
+            0
+        };
         let to = move_to(m) as usize;
         let ch = ctx.cap_history[us][mover_pt][to][cap_pt] / CAP_HISTORY_DIVISOR;
         return 1_000_000 + cap_val * 10 - mov_val + ch;
@@ -614,9 +784,13 @@ fn score_single_move(
 
     // Quiet move scoring
     let mut s = 0i32;
-    if ply < 128 && m == ctx.killers[ply][0] { s += 900_000; }
-    else if ply < 128 && m == ctx.killers[ply][1] { s += 800_000; }
-    else if m == counter { s += 750_000; }
+    if ply < 128 && m == ctx.killers[ply][0] {
+        s += 900_000;
+    } else if ply < 128 && m == ctx.killers[ply][1] {
+        s += 800_000;
+    } else if m == counter {
+        s += 750_000;
+    }
     s += ctx.history[us][move_from(m) as usize][move_to(m) as usize];
     s += restriction_move_score(board, ctx.atk, m);
     s
@@ -626,11 +800,19 @@ fn score_single_move(
 // Section 2: Alpha-beta (PVS)
 // ============================================================
 
-fn alpha_beta(board: &mut Board, ctx: &mut SearchContext,
-              alpha: Score, beta: Score, depth: i32, ply: usize,
-              is_pv: bool, pv: &mut Vec<Move>) -> Score {
-
-    if ctx.should_stop() { return 0; }
+fn alpha_beta(
+    board: &mut Board,
+    ctx: &mut SearchContext,
+    alpha: Score,
+    beta: Score,
+    depth: i32,
+    ply: usize,
+    is_pv: bool,
+    pv: &mut Vec<Move>,
+) -> Score {
+    if ctx.should_stop() {
+        return 0;
+    }
     ctx.nodes += 1;
     ctx.stats.nodes += 1;
 
@@ -677,7 +859,11 @@ fn alpha_beta(board: &mut Board, ctx: &mut SearchContext,
     // Absolute ply cap based on current iteration depth, not max_depth.
     // This prevents search explosion in endgames with long checking sequences.
     let ply_limit = ctx.root_depth as usize + 2;
-    let depth = if in_check && depth >= 4 && ply < ply_limit { depth + 1 } else { depth };
+    let depth = if in_check && depth >= 4 && ply < ply_limit {
+        depth + 1
+    } else {
+        depth
+    };
 
     // TT probe
     let (mut tt_move, tt_cutoff) = try_tt_cutoff(ctx, board.hash, depth, alpha, beta, is_pv, ply);
@@ -706,7 +892,9 @@ fn alpha_beta(board: &mut Board, ctx: &mut SearchContext,
 
     // Static evaluation for pruning heuristics
     let static_eval = evaluate(board, &EvalContext { atk: ctx.atk });
-    if ply < 128 { ctx.stack[ply].static_eval = static_eval; }
+    if ply < 128 {
+        ctx.stack[ply].static_eval = static_eval;
+    }
     let improving = ply >= 2 && ply < 128 && static_eval > ctx.stack[ply - 2].static_eval;
 
     // ---- Positional mode detection (the Karpov adaptation) ----
@@ -715,7 +903,6 @@ fn alpha_beta(board: &mut Board, ctx: &mut SearchContext,
     // ---- Pruning heuristics (skip in check, PV, squeeze mode) ----
 
     if !in_check && !is_pv {
-
         // Reverse futility pruning (static null move)
         // When improving, we use a tighter margin (position is getting better,
         // so we're less willing to prune). SF uses similar improving adjustments.
@@ -724,14 +911,17 @@ fn alpha_beta(board: &mut Board, ctx: &mut SearchContext,
         } else {
             RFP_MARGIN_PER_DEPTH * depth
         };
-        if depth <= RFP_MAX_DEPTH && static_eval - rfp_margin >= beta && !is_mate_score(static_eval) {
+        if depth <= RFP_MAX_DEPTH && static_eval - rfp_margin >= beta && !is_mate_score(static_eval)
+        {
             ctx.stats.rfp_cutoffs += 1;
             ctx.history_hashes.pop();
             return static_eval - rfp_margin;
         }
 
         // Null move pruning — DISABLED in squeeze mode (critical Karpov adaptation)
-        if let Some(null_score) = try_null_move(board, ctx, beta, depth, ply, static_eval, squeeze_mode) {
+        if let Some(null_score) =
+            try_null_move(board, ctx, beta, depth, ply, static_eval, squeeze_mode)
+        {
             ctx.history_hashes.pop();
             return null_score;
         }
@@ -741,16 +931,20 @@ fn alpha_beta(board: &mut Board, ctx: &mut SearchContext,
     let mut list = gen_moves(board, ctx.atk);
     score_moves(board, ctx, &mut list, tt_move, ply);
 
-    let mut best_move  = MOVE_NONE;
+    let mut best_move = MOVE_NONE;
     let mut best_score = -SCORE_INF;
     let mut bound = Bound::Upper;
     let mut moves_searched = 0;
     let mut legal_moves = 0;
+    let pre_move_opponent_mobility = if !in_check {
+        Some(side_mobility_for_search(board, ctx.atk, board.side.flip()))
+    } else {
+        None
+    };
 
     for i in 0..list.count {
         list.pick_best(i);
         let m = list.moves[i];
-
 
         // Make move and verify legality
         let undo = board.make_move(m, ctx.z);
@@ -760,10 +954,10 @@ fn alpha_beta(board: &mut Board, ctx: &mut SearchContext,
         }
         legal_moves += 1;
 
-        let is_capture  = undo.captured != PIECE_NONE || move_flags(m) == MF_EN_PASSANT;
-        let is_promo    = move_flags(m) == MF_PROMOTION;
+        let is_capture = undo.captured != PIECE_NONE || move_flags(m) == MF_EN_PASSANT;
+        let is_promo = move_flags(m) == MF_PROMOTION;
         let gives_check = board.is_in_check(board.side);
-        let _is_killer  = ply < 128 && (m == ctx.killers[ply][0] || m == ctx.killers[ply][1]);
+        let _is_killer = ply < 128 && (m == ctx.killers[ply][0] || m == ctx.killers[ply][1]);
 
         // ---- Squeeze extension ----
         // Capped like the check extension (ply < root_depth + 2). Without the
@@ -771,16 +965,39 @@ fn alpha_beta(board: &mut Board, ctx: &mut SearchContext,
         // design), so lines never reach quiescence and only terminate at
         // repetition/50-move draws — making the engine score *won* squeeze
         // endgames as draws (e.g. KQvK read as -contempt at depth 2+).
-        let squeeze_ext = if !is_capture && !in_check && squeeze_mode
-                             && ply < ply_limit
-                             && restricts_opponent(board, ctx.atk) { 1 } else { 0 };
+        let post_move_opponent_mobility = pre_move_opponent_mobility
+            .map(|_| side_mobility_for_search(board, ctx.atk, board.side));
+        let squeeze_ext = if !is_capture && !is_promo && !in_check && ply < ply_limit {
+            match (pre_move_opponent_mobility, post_move_opponent_mobility) {
+                (Some(before), Some(after))
+                    if should_extend_restriction(before, after, squeeze_mode) =>
+                {
+                    1
+                }
+                _ => 0,
+            }
+        } else {
+            0
+        };
+        if squeeze_ext > 0 {
+            ctx.stats.restriction_extensions += 1;
+        }
 
         // ---- Late move reductions (LMR) ----
         let reduction = compute_lmr_reduction(
-            moves_searched, depth, is_capture, is_promo, gives_check, in_check,
-            squeeze_mode, improving, ctx,
+            moves_searched,
+            depth,
+            is_capture,
+            is_promo,
+            gives_check,
+            in_check,
+            squeeze_mode,
+            improving,
+            ctx,
         );
-        if reduction > 0 { ctx.stats.lmr_actual_reductions += 1; }
+        if reduction > 0 {
+            ctx.stats.lmr_actual_reductions += 1;
+        }
 
         let new_depth = (depth - 1 + squeeze_ext - reduction).max(0);
 
@@ -788,17 +1005,48 @@ fn alpha_beta(board: &mut Board, ctx: &mut SearchContext,
         // stack[ply].current_move for the counter-move heuristic. (Previously
         // set after the search returned, so children always saw the previous
         // sibling's move and the counter table learned garbage.)
-        if ply < 128 { ctx.stack[ply].current_move = m; }
+        if ply < 128 {
+            ctx.stack[ply].current_move = m;
+        }
 
         let mut child_pv = Vec::new();
         let score = if moves_searched == 0 {
-            -alpha_beta(board, ctx, -beta, -alpha, depth - 1 + squeeze_ext, ply + 1, is_pv, &mut child_pv)
+            -alpha_beta(
+                board,
+                ctx,
+                -beta,
+                -alpha,
+                depth - 1 + squeeze_ext,
+                ply + 1,
+                is_pv,
+                &mut child_pv,
+            )
         } else {
-            let mut s = -alpha_beta(board, ctx, -alpha - 1, -alpha, new_depth, ply + 1, false, &mut child_pv);
+            let mut s = -alpha_beta(
+                board,
+                ctx,
+                -alpha - 1,
+                -alpha,
+                new_depth,
+                ply + 1,
+                false,
+                &mut child_pv,
+            );
             if !ctx.stopped && s > alpha && (s < beta || reduction > 0) {
-                if reduction > 0 { ctx.stats.lmr_re_searches += 1; }
+                if reduction > 0 {
+                    ctx.stats.lmr_re_searches += 1;
+                }
                 child_pv.clear();
-                s = -alpha_beta(board, ctx, -beta, -alpha, depth - 1 + squeeze_ext, ply + 1, is_pv, &mut child_pv);
+                s = -alpha_beta(
+                    board,
+                    ctx,
+                    -beta,
+                    -alpha,
+                    depth - 1 + squeeze_ext,
+                    ply + 1,
+                    is_pv,
+                    &mut child_pv,
+                );
             }
             s
         };
@@ -806,11 +1054,14 @@ fn alpha_beta(board: &mut Board, ctx: &mut SearchContext,
         board.unmake_move(m, &undo, ctx.z);
         moves_searched += 1;
 
-        if ctx.stopped { ctx.history_hashes.pop(); return 0; }
+        if ctx.stopped {
+            ctx.history_hashes.pop();
+            return 0;
+        }
 
         if score > best_score {
             best_score = score;
-            best_move  = m;
+            best_move = m;
             if score > alpha {
                 alpha = score;
                 bound = Bound::Exact;
@@ -822,7 +1073,9 @@ fn alpha_beta(board: &mut Board, ctx: &mut SearchContext,
 
         if score >= beta {
             ctx.stats.beta_cutoffs += 1;
-            if moves_searched == 1 { ctx.stats.first_move_cutoffs += 1; }
+            if moves_searched == 1 {
+                ctx.stats.first_move_cutoffs += 1;
+            }
             bound = Bound::Lower;
             handle_beta_cutoff(ctx, board, m, ply, depth, is_capture);
             break;
@@ -833,21 +1086,39 @@ fn alpha_beta(board: &mut Board, ctx: &mut SearchContext,
     if legal_moves == 0 {
         ctx.history_hashes.pop();
         let sign = if board.side == ctx.root_color { 1 } else { -1 };
-        return if in_check { -(SCORE_MATE - ply as Score) } else { SCORE_DRAW - ctx.contempt * sign };
+        return if in_check {
+            -(SCORE_MATE - ply as Score)
+        } else {
+            SCORE_DRAW - ctx.contempt * sign
+        };
     }
 
     // Pop our position hash from history
     ctx.history_hashes.pop();
 
     // TT store (mate scores converted to node-relative distance)
-    ctx.tt.store(board.hash, score_to_tt(best_score, ply), best_move, depth as i8, bound);
+    ctx.tt.store(
+        board.hash,
+        score_to_tt(best_score, ply),
+        best_move,
+        depth as i8,
+        bound,
+    );
 
     best_score
 }
 
-fn quiescence(board: &mut Board, ctx: &mut SearchContext,
-              mut alpha: Score, beta: Score, ply: usize, qs_ply: usize) -> Score {
-    if ctx.should_stop() { return 0; }
+fn quiescence(
+    board: &mut Board,
+    ctx: &mut SearchContext,
+    mut alpha: Score,
+    beta: Score,
+    ply: usize,
+    qs_ply: usize,
+) -> Score {
+    if ctx.should_stop() {
+        return 0;
+    }
     ctx.nodes += 1;
     ctx.stats.qnodes += 1;
 
@@ -871,13 +1142,21 @@ fn quiescence(board: &mut Board, ctx: &mut SearchContext,
             }
             legal_moves += 1;
 
-            if ply < 128 { ctx.stack[ply].current_move = m; }
+            if ply < 128 {
+                ctx.stack[ply].current_move = m;
+            }
             let score = -quiescence(board, ctx, -beta, -alpha, ply + 1, qs_ply + 1);
             board.unmake_move(m, &undo, ctx.z);
 
-            if ctx.stopped { return 0; }
-            if score >= beta { return score; }
-            if score > alpha { alpha = score; }
+            if ctx.stopped {
+                return 0;
+            }
+            if score >= beta {
+                return score;
+            }
+            if score > alpha {
+                alpha = score;
+            }
         }
 
         if legal_moves == 0 {
@@ -889,8 +1168,12 @@ fn quiescence(board: &mut Board, ctx: &mut SearchContext,
     // Normal quiescence: captures only. In-check nodes are handled above with
     // a small evasion cap, because standing pat while in check is illegal.
     let stand_pat = evaluate(board, &EvalContext { atk: ctx.atk });
-    if stand_pat >= beta { return stand_pat; }
-    if stand_pat > alpha { alpha = stand_pat; }
+    if stand_pat >= beta {
+        return stand_pat;
+    }
+    if stand_pat > alpha {
+        alpha = stand_pat;
+    }
 
     let mut list = gen_captures(board, ctx.atk);
 
@@ -910,7 +1193,9 @@ fn quiescence(board: &mut Board, ctx: &mut SearchContext,
         } else {
             0
         };
-        if is_capture && stand_pat + cap_value + DELTA_PRUNING_MARGIN < alpha { continue; }
+        if is_capture && stand_pat + cap_value + DELTA_PRUNING_MARGIN < alpha {
+            continue;
+        }
 
         let undo = board.make_move(m, ctx.z);
         if board.is_in_check(board.side.flip()) {
@@ -921,8 +1206,12 @@ fn quiescence(board: &mut Board, ctx: &mut SearchContext,
         let score = -quiescence(board, ctx, -beta, -alpha, ply + 1, qs_ply + 1);
         board.unmake_move(m, &undo, ctx.z);
 
-        if score >= beta { return score; }
-        if score > alpha { alpha = score; }
+        if score >= beta {
+            return score;
+        }
+        if score > alpha {
+            alpha = score;
+        }
     }
 
     alpha
@@ -930,7 +1219,11 @@ fn quiescence(board: &mut Board, ctx: &mut SearchContext,
 
 fn score_moves(board: &Board, ctx: &SearchContext, list: &mut MoveList, tt_move: Move, ply: usize) {
     let us = board.side as usize;
-    let prev_move = if ply > 0 && ply < 128 { ctx.stack[ply - 1].current_move } else { MOVE_NONE };
+    let prev_move = if ply > 0 && ply < 128 {
+        ctx.stack[ply - 1].current_move
+    } else {
+        MOVE_NONE
+    };
     let counter = if prev_move != MOVE_NONE {
         ctx.counter[move_from(prev_move) as usize][move_to(prev_move) as usize]
     } else {
@@ -947,10 +1240,18 @@ fn score_captures(board: &Board, ctx: &SearchContext, list: &mut MoveList) {
     for i in 0..list.count {
         let m = list.moves[i];
         let cap = board.sq_piece[move_to(m) as usize];
-        let cap_val = if cap != PIECE_NONE { piece_type(cap).material_value() } else { 100 };
+        let cap_val = if cap != PIECE_NONE {
+            piece_type(cap).material_value()
+        } else {
+            100
+        };
         let mov_val = piece_type(board.sq_piece[move_from(m) as usize]).material_value();
         let mover_pt = piece_type(board.sq_piece[move_from(m) as usize]) as usize;
-        let cap_pt = if cap != PIECE_NONE { piece_type(cap) as usize } else { 0 };
+        let cap_pt = if cap != PIECE_NONE {
+            piece_type(cap) as usize
+        } else {
+            0
+        };
         let to = move_to(m) as usize;
         let ch = ctx.cap_history[us][mover_pt][to][cap_pt] / CAP_HISTORY_DIVISOR;
         list.scores[i] = cap_val * 10 - mov_val + ch;
@@ -961,7 +1262,9 @@ fn score_captures(board: &Board, ctx: &SearchContext, list: &mut MoveList) {
 fn restriction_move_score(board: &Board, _atk: &AttackTables, m: Move) -> i32 {
     let to = move_to(m);
     let mover = board.sq_piece[move_from(m) as usize];
-    if mover == PIECE_NONE { return 0; }
+    if mover == PIECE_NONE {
+        return 0;
+    }
     let pt = piece_type(mover);
     let color = piece_color(mover);
 
@@ -974,8 +1277,8 @@ fn restriction_move_score(board: &Board, _atk: &AttackTables, m: Move) -> i32 {
     let piece_bonus = match pt {
         PieceType::Knight => 15,
         PieceType::Bishop => 10,
-        PieceType::Rook   => 8,
-        _                 => 0,
+        PieceType::Rook => 8,
+        _ => 0,
     };
 
     centrality + forward_bonus + piece_bonus
@@ -995,39 +1298,71 @@ fn centrality_score(sq: Square) -> i32 {
 // ============================================================
 
 fn is_squeeze_position(board: &Board, atk: &AttackTables) -> bool {
-    let them = board.side.flip();
-    let ti   = them as usize;
-    let occ  = board.occ_all;
-
-    let mut their_mobility = 0u32;
-
-    let their_pawns = board.pieces[ti][PieceType::Pawn as usize];
-    if them == Color::White {
-        their_mobility += ((their_pawns << 8) & !occ).count_ones();
-    } else {
-        their_mobility += ((their_pawns >> 8) & !occ).count_ones();
-    }
-    let mut pieces = board.pieces[ti][PieceType::Knight as usize];
-    while pieces != 0 {
-        let sq = bb_pop_lsb(&mut pieces);
-        their_mobility += (atk.knight[sq as usize] & !board.occ[ti]).count_ones();
-    }
-    let mut pieces = board.pieces[ti][PieceType::Bishop as usize];
-    while pieces != 0 {
-        let sq = bb_pop_lsb(&mut pieces);
-        their_mobility += (atk.bishop_attacks(sq, occ) & !board.occ[ti]).count_ones();
-    }
-    let mut pieces = board.pieces[ti][PieceType::Rook as usize];
-    while pieces != 0 {
-        let sq = bb_pop_lsb(&mut pieces);
-        their_mobility += (atk.rook_attacks(sq, occ) & !board.occ[ti]).count_ones();
-    }
-
-    their_mobility <= SQUEEZE_MOBILITY_THRESHOLD
+    side_mobility_for_search(board, atk, board.side.flip()) <= SQUEEZE_MOBILITY_THRESHOLD
 }
 
-fn restricts_opponent(board: &Board, atk: &AttackTables) -> bool {
-    is_squeeze_position(board, atk)
+fn side_mobility_for_search(board: &Board, atk: &AttackTables, color: Color) -> u32 {
+    let ci = color as usize;
+    let oi = color.flip() as usize;
+    let occ = board.occ_all;
+    let our_occ = board.occ[ci];
+
+    let mut mobility = 0u32;
+
+    let pawns = board.pieces[ci][PieceType::Pawn as usize];
+    if color == Color::White {
+        mobility += ((pawns << 8) & !occ).count_ones();
+        mobility += (((pawns << 8) & !occ & BB_RANK_3) << 8 & !occ).count_ones();
+        mobility += ((pawns << 9) & !BB_FILE_A & board.occ[oi]).count_ones();
+        mobility += ((pawns << 7) & !BB_FILE_H & board.occ[oi]).count_ones();
+    } else {
+        mobility += ((pawns >> 8) & !occ).count_ones();
+        mobility += (((pawns >> 8) & !occ & BB_RANK_6) >> 8 & !occ).count_ones();
+        mobility += ((pawns >> 7) & !BB_FILE_A & board.occ[oi]).count_ones();
+        mobility += ((pawns >> 9) & !BB_FILE_H & board.occ[oi]).count_ones();
+    }
+
+    let mut pieces = board.pieces[ci][PieceType::Knight as usize];
+    while pieces != 0 {
+        let sq = bb_pop_lsb(&mut pieces);
+        mobility += (atk.knight[sq as usize] & !our_occ).count_ones();
+    }
+
+    let mut pieces = board.pieces[ci][PieceType::Bishop as usize];
+    while pieces != 0 {
+        let sq = bb_pop_lsb(&mut pieces);
+        mobility += (atk.bishop_attacks(sq, occ) & !our_occ).count_ones();
+    }
+
+    let mut pieces = board.pieces[ci][PieceType::Rook as usize];
+    while pieces != 0 {
+        let sq = bb_pop_lsb(&mut pieces);
+        mobility += (atk.rook_attacks(sq, occ) & !our_occ).count_ones();
+    }
+
+    let mut pieces = board.pieces[ci][PieceType::Queen as usize];
+    while pieces != 0 {
+        let sq = bb_pop_lsb(&mut pieces);
+        mobility += (atk.queen_attacks(sq, occ) & !our_occ).count_ones();
+    }
+
+    let king_sq = board.king_sq[ci];
+    if king_sq != NO_SQUARE {
+        mobility += (atk.king[king_sq as usize] & !our_occ).count_ones();
+    }
+
+    mobility
+}
+
+fn should_extend_restriction(before: u32, after: u32, squeeze_mode: bool) -> bool {
+    if after > before {
+        return false;
+    }
+    if squeeze_mode && after <= SQUEEZE_MOBILITY_THRESHOLD {
+        return true;
+    }
+    before - after >= RESTRICTION_EXTENSION_MOBILITY_DROP
+        && after <= RESTRICTION_EXTENSION_MAX_MOBILITY
 }
 
 // ============================================================
@@ -1035,7 +1370,9 @@ fn restricts_opponent(board: &Board, atk: &AttackTables) -> bool {
 // ============================================================
 
 fn update_killers(ctx: &mut SearchContext, ply: usize, m: Move) {
-    if ply >= MAX_PLY { return; }
+    if ply >= MAX_PLY {
+        return;
+    }
     if ctx.killers[ply][0] != m {
         ctx.killers[ply][1] = ctx.killers[ply][0];
         ctx.killers[ply][0] = m;
@@ -1044,17 +1381,18 @@ fn update_killers(ctx: &mut SearchContext, ply: usize, m: Move) {
 
 fn update_history(ctx: &mut SearchContext, color: Color, m: Move, depth: i32) {
     let from = move_from(m) as usize;
-    let to   = move_to(m)   as usize;
-    let ci   = color as usize;
+    let to = move_to(m) as usize;
+    let ci = color as usize;
     let bonus = depth * depth;
     ctx.history[ci][from][to] += bonus;
     if ctx.history[ci][from][to] > HISTORY_OVERFLOW_THRESHOLD {
         for arr in &mut ctx.history[ci] {
-            for v in arr.iter_mut() { *v /= 2; }
+            for v in arr.iter_mut() {
+                *v /= 2;
+            }
         }
     }
 }
-
 
 fn scale_down_cap_history(ctx: &mut SearchContext, ci: usize) {
     for pt in 0..6 {
@@ -1069,11 +1407,17 @@ fn scale_down_cap_history(ctx: &mut SearchContext, ci: usize) {
 fn update_cap_history(ctx: &mut SearchContext, color: Color, m: Move, board: &Board, depth: i32) {
     let ci = color as usize;
     let mover = board.sq_piece[move_from(m) as usize];
-    if mover == PIECE_NONE { return; }
+    if mover == PIECE_NONE {
+        return;
+    }
     let mover_pt = piece_type(mover) as usize;
     let to = move_to(m) as usize;
     let cap = board.sq_piece[move_to(m) as usize];
-    let cap_pt = if cap != PIECE_NONE { piece_type(cap) as usize } else { 0 };
+    let cap_pt = if cap != PIECE_NONE {
+        piece_type(cap) as usize
+    } else {
+        0
+    };
     let bonus = depth * depth;
     ctx.cap_history[ci][mover_pt][to][cap_pt] += bonus;
     if ctx.cap_history[ci][mover_pt][to][cap_pt] > HISTORY_OVERFLOW_THRESHOLD {
@@ -1083,12 +1427,23 @@ fn update_cap_history(ctx: &mut SearchContext, color: Color, m: Move, board: &Bo
 
 /// Compute LMR reduction for a move. Returns 0 if LMR doesn't apply.
 fn compute_lmr_reduction(
-    moves_searched: usize, depth: i32, is_capture: bool, is_promo: bool,
-    gives_check: bool, in_check: bool, squeeze_mode: bool, improving: bool,
+    moves_searched: usize,
+    depth: i32,
+    is_capture: bool,
+    is_promo: bool,
+    gives_check: bool,
+    in_check: bool,
+    squeeze_mode: bool,
+    improving: bool,
     ctx: &mut SearchContext,
 ) -> i32 {
-    if moves_searched < LMR_FULL_DEPTH_MOVES || depth < LMR_MIN_DEPTH
-       || is_capture || is_promo || gives_check || in_check {
+    if moves_searched < LMR_FULL_DEPTH_MOVES
+        || depth < LMR_MIN_DEPTH
+        || is_capture
+        || is_promo
+        || gives_check
+        || in_check
+    {
         return 0;
     }
     ctx.stats.lmr_attempts += 1;
@@ -1115,13 +1470,17 @@ fn lmr_reduction(depth: i32, moves_done: usize) -> i32 {
 // ============================================================
 
 fn is_insufficient_material(board: &Board) -> bool {
-    if board.occ_all.count_ones() == 2 { return true; }
+    if board.occ_all.count_ones() == 2 {
+        return true;
+    }
     if board.occ_all.count_ones() == 3 {
         let bishops = board.pieces[0][PieceType::Bishop as usize]
-                     | board.pieces[1][PieceType::Bishop as usize];
+            | board.pieces[1][PieceType::Bishop as usize];
         let knights = board.pieces[0][PieceType::Knight as usize]
-                     | board.pieces[1][PieceType::Knight as usize];
-        if (bishops | knights).count_ones() == 1 { return true; }
+            | board.pieces[1][PieceType::Knight as usize];
+        if (bishops | knights).count_ones() == 1 {
+            return true;
+        }
     }
     false
 }
@@ -1148,7 +1507,11 @@ mod tests {
         let z = Zobrist::new();
         let mut tt = TranspositionTable::new(1);
         let stop = AtomicBool::new(false);
-        let limits = Limits { max_depth: 8, nodes: 1, ..Limits::default() };
+        let limits = Limits {
+            max_depth: 8,
+            nodes: 1,
+            ..Limits::default()
+        };
         let mut ctx = test_context(&atk, &z, &mut tt, limits, &stop);
         let mut board = Board::startpos();
 
@@ -1180,13 +1543,42 @@ mod tests {
         let mut tt = TranspositionTable::new(1);
         let stop = AtomicBool::new(false);
         let mut board = Board::from_fen("7k/6Q1/6K1/8/8/8/8/8 b - - 0 1").unwrap();
-        let mut ctx =
-            test_context(&atk, &z, &mut tt, Limits { max_depth: 1, ..Limits::default() }, &stop);
+        let mut ctx = test_context(
+            &atk,
+            &z,
+            &mut tt,
+            Limits {
+                max_depth: 1,
+                ..Limits::default()
+            },
+            &stop,
+        );
         ctx.root_color = board.side;
 
         let mut pv = Vec::new();
-        let score = alpha_beta(&mut board, &mut ctx, -SCORE_INF, SCORE_INF, 0, 0, true, &mut pv);
+        let score = alpha_beta(
+            &mut board, &mut ctx, -SCORE_INF, SCORE_INF, 0, 0, true, &mut pv,
+        );
 
         assert_eq!(score, -SCORE_MATE);
+    }
+
+    #[test]
+    fn restriction_extension_rewards_large_drop_into_low_mobility() {
+        assert!(should_extend_restriction(22, 18, false));
+        assert!(should_extend_restriction(16, 12, false));
+    }
+
+    #[test]
+    fn restriction_extension_ignores_small_or_still_free_drops() {
+        assert!(!should_extend_restriction(22, 19, false));
+        assert!(!should_extend_restriction(40, 32, false));
+        assert!(!should_extend_restriction(12, 13, true));
+    }
+
+    #[test]
+    fn squeeze_mode_keeps_extending_lockdown_positions() {
+        assert!(should_extend_restriction(12, 12, true));
+        assert!(should_extend_restriction(8, 5, true));
     }
 }

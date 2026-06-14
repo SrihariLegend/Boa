@@ -28,7 +28,10 @@ export const paths = {
 
 export const ENGINES_DIR = path.join(paths.matchManager, "engines");
 export const MATCHES_DIR = path.join(paths.matchManager, "matches");
-export const CUTECHESS = path.join(paths.tools, "cutechess-cli");
+const LOCAL_CUTECHESS = path.join(paths.tools, "cutechess-cli");
+export const CUTECHESS = fs.existsSync(LOCAL_CUTECHESS)
+  ? LOCAL_CUTECHESS
+  : findExecutable("cutechess-cli") ?? LOCAL_CUTECHESS;
 export const OPENINGS = path.join(paths.tools, "openings.epd");
 export const KARPOV_BIN = path.join(paths.root, "target", "release", "karpov");
 export const STOCKFISH = findExecutable("stockfish") ?? "/usr/games/stockfish";

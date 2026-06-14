@@ -4,6 +4,7 @@
 # Vendored/downloaded tooling and generated outputs
 /tools/cutechess-1.4.0/
 /tools/cutechess-1.4.0.tar.gz
+/tools/cutechess/
 /tools/cutechess-cli
 /tools/match_results/
 /tools/match_manager/node_modules/

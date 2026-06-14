@@ -25,9 +25,9 @@
 
 #![allow(dead_code)]
 
-use crate::types::*;
 use crate::board::Board;
-use crate::movegen::{AttackTables, pawn_attacks_white, pawn_attacks_black};
+use crate::movegen::{pawn_attacks_black, pawn_attacks_white, AttackTables};
+use crate::types::*;
 
 // ---- Evaluation tuning constants ----
 // Sources: Stockfish (SF), Chess Programming Wiki (CPW), or marked [NEEDS TUNING].
@@ -100,17 +100,23 @@ const KING_ATTACK_WEIGHT_QUEEN: i32 = 5;
 /// Loosely follows the CPW safety table shape (quadratic-ish growth). [NEEDS TUNING]
 const KING_SAFETY_TABLE: [(i32, i32); 7] = [
     // (max_attack_units, penalty)
-    (2, 0), (5, 20), (8, 50), (11, 80), (15, 120), (20, 170), (i32::MAX, 230),
+    (2, 0),
+    (5, 20),
+    (8, 50),
+    (11, 80),
+    (15, 120),
+    (20, 170),
+    (i32::MAX, 230),
 ];
 
 /// Freedom metric squeeze bonuses.
 /// These reward positions where opponent mobility is severely restricted.
 /// The tiered structure reflects that restriction becomes exponentially
 /// more valuable as mobility approaches zero. [NEEDS TUNING]
-const SQUEEZE_TOTAL_LOCKDOWN: i32 = 80;  // 0 moves
-const SQUEEZE_SEVERE_BASE: i32 = 20;     // 1-5 moves: 60 + (5-mob)*4
+const SQUEEZE_TOTAL_LOCKDOWN: i32 = 80; // 0 moves
+const SQUEEZE_SEVERE_BASE: i32 = 20; // 1-5 moves: 60 + (5-mob)*4
 const SQUEEZE_SEVERE_PER_MOVE: i32 = 4;
-const SQUEEZE_MODERATE_BASE: i32 = 10;   // 6-15 moves: 30 + (15-mob)*3
+const SQUEEZE_MODERATE_BASE: i32 = 10; // 6-15 moves: 30 + (15-mob)*3
 const SQUEEZE_MODERATE_PER_MOVE: i32 = 1;
 
 /// Space evaluation: count squares controlled behind our pawn chain.
@@ -190,7 +196,7 @@ const CENTRAL_CONTROL_OVERLAP_BONUS: (i32, i32) = (1, 8);
 
 /// Pieces in center: bonus per non-pawn piece on d4/d5/e4/e5.
 /// Effect size +0.422 — one of the strongest positional predictors. [NEEDS TUNING]
-const PIECE_IN_CENTER_BONUS: (i32, i32) = (0, 9);  // reduced: PST already rewards center
+const PIECE_IN_CENTER_BONUS: (i32, i32) = (0, 9); // reduced: PST already rewards center
 
 /// Piece-king proximity: penalty when a piece is far from our king.
 /// Effect size -0.320 — pieces spread far from king correlate with losing. [NEEDS TUNING]
@@ -210,7 +216,7 @@ const EXTENDED_CENTER_ATTACK_BONUS: (i32, i32) = (0, 5);
 /// Advanced pawn bonus: extra reward for pawns past the 4th rank.
 /// Effect size +0.328 — advanced pawns are strong. [NEEDS TUNING]
 /// Per pawn on rank 5/6/7 (relative to color).
-const ADVANCED_PAWN_BONUS_MG: [i32; 3] = [7, 15, 30];  // rank 5, 6, 7
+const ADVANCED_PAWN_BONUS_MG: [i32; 3] = [7, 15, 30]; // rank 5, 6, 7
 const ADVANCED_PAWN_BONUS_EG: [i32; 3] = [2, 8, 35];
 
 /// Min piece mobility: penalty when our least mobile piece has very few moves.
@@ -305,13 +311,13 @@ fn pst_value(pt: PieceType, sq: Square, color: Color) -> (i32, i32) {
         (r * 8 + f) as usize
     };
     match pt {
-        PieceType::Pawn   => PST_PAWN[idx],
+        PieceType::Pawn => PST_PAWN[idx],
         PieceType::Knight => PST_KNIGHT[idx],
         PieceType::Bishop => PST_BISHOP[idx],
-        PieceType::Rook   => PST_ROOK[idx],
-        PieceType::Queen  => PST_QUEEN[idx],
-        PieceType::King   => PST_KING[idx],
-        PieceType::None   => (0, 0),
+        PieceType::Rook => PST_ROOK[idx],
+        PieceType::Queen => PST_QUEEN[idx],
+        PieceType::King => PST_KING[idx],
+        PieceType::None => (0, 0),
     }
 }
 
@@ -319,22 +325,79 @@ fn pst_value(pt: PieceType, sq: Square, color: Color) -> (i32, i32) {
 // Section 2: Mobility tables
 // ============================================================
 
-const KNIGHT_MOBILITY: [(i32,i32); 9] = [
-    (-30,-20),(-15,-10),(0,0),(5,5),(10,10),(15,15),(20,18),(25,20),(28,22),
+const KNIGHT_MOBILITY: [(i32, i32); 9] = [
+    (-30, -20),
+    (-15, -10),
+    (0, 0),
+    (5, 5),
+    (10, 10),
+    (15, 15),
+    (20, 18),
+    (25, 20),
+    (28, 22),
 ];
-const BISHOP_MOBILITY: [(i32,i32); 14] = [
-    (-30,-25),(-15,-12),(0,0),(5,4),(8,7),(11,10),(14,13),(17,16),
-    (19,18),(21,20),(23,22),(25,24),(26,25),(27,26),
+const BISHOP_MOBILITY: [(i32, i32); 14] = [
+    (-30, -25),
+    (-15, -12),
+    (0, 0),
+    (5, 4),
+    (8, 7),
+    (11, 10),
+    (14, 13),
+    (17, 16),
+    (19, 18),
+    (21, 20),
+    (23, 22),
+    (25, 24),
+    (26, 25),
+    (27, 26),
 ];
-const ROOK_MOBILITY: [(i32,i32); 15] = [
-    (-25,-20),(-12,-10),(0,0),(3,3),(5,5),(7,7),(9,9),(11,11),
-    (13,13),(15,15),(17,17),(19,19),(20,20),(21,21),(22,22),
+const ROOK_MOBILITY: [(i32, i32); 15] = [
+    (-25, -20),
+    (-12, -10),
+    (0, 0),
+    (3, 3),
+    (5, 5),
+    (7, 7),
+    (9, 9),
+    (11, 11),
+    (13, 13),
+    (15, 15),
+    (17, 17),
+    (19, 19),
+    (20, 20),
+    (21, 21),
+    (22, 22),
 ];
-const QUEEN_MOBILITY: [(i32,i32); 28] = [
-    (-15,-10),(-8,-5),(0,0),(2,2),(4,4),(6,6),(8,8),(10,10),
-    (12,12),(13,13),(14,14),(15,15),(16,16),(17,17),(18,18),(19,19),
-    (20,20),(21,21),(21,21),(22,22),(22,22),(23,23),(23,23),(24,24),
-    (24,24),(24,24),(25,25),(25,25),
+const QUEEN_MOBILITY: [(i32, i32); 28] = [
+    (-15, -10),
+    (-8, -5),
+    (0, 0),
+    (2, 2),
+    (4, 4),
+    (6, 6),
+    (8, 8),
+    (10, 10),
+    (12, 12),
+    (13, 13),
+    (14, 14),
+    (15, 15),
+    (16, 16),
+    (17, 17),
+    (18, 18),
+    (19, 19),
+    (20, 20),
+    (21, 21),
+    (21, 21),
+    (22, 22),
+    (22, 22),
+    (23, 23),
+    (23, 23),
+    (24, 24),
+    (24, 24),
+    (24, 24),
+    (25, 25),
+    (25, 25),
 ];
 
 // ============================================================
@@ -392,7 +455,6 @@ pub fn evaluate(board: &Board, ctx: &EvalContext) -> Score {
     mg_score += pc_mg;
     eg_score += pc_eg;
 
-
     let (ap_mg, ap_eg) = advanced_pawn_eval(board);
     mg_score += ap_mg;
     eg_score += ap_eg;
@@ -438,15 +500,15 @@ fn material_and_pst(board: &Board) -> (i32, i32) {
 // ============================================================
 /// Rook file bonus: open file, semi-open file, or nothing.
 fn rook_file_bonus(file_bb: Bb, our_pawns: Bb, their_pawns: Bb) -> (i32, i32) {
-    if our_pawns & file_bb != 0 { return (0, 0); }
+    if our_pawns & file_bb != 0 {
+        return (0, 0);
+    }
     if their_pawns & file_bb == 0 {
         (ROOK_OPEN_FILE_BONUS.0, ROOK_OPEN_FILE_BONUS.1)
     } else {
         (ROOK_SEMI_OPEN_FILE_BONUS.0, ROOK_SEMI_OPEN_FILE_BONUS.1)
     }
 }
-
-
 
 fn mobility_and_activity(board: &Board, ctx: &EvalContext) -> (i32, i32) {
     let mut mg = 0i32;
@@ -504,13 +566,17 @@ fn mobility_and_activity(board: &Board, ctx: &EvalContext) -> (i32, i32) {
             eg += sign * ROOK_MOBILITY[mob].1;
 
             let file_bb = BB_FILES[sq_file(sq) as usize];
-            let our_pawns   = board.pieces[ci][PieceType::Pawn as usize];
+            let our_pawns = board.pieces[ci][PieceType::Pawn as usize];
             let their_pawns = board.pieces[color.flip() as usize][PieceType::Pawn as usize];
             let (rk_mg, rk_eg) = rook_file_bonus(file_bb, our_pawns, their_pawns);
             mg += sign * rk_mg;
             eg += sign * rk_eg;
 
-            let seventh_rank = if color == Color::White { BB_RANK_7 } else { BB_RANK_2 };
+            let seventh_rank = if color == Color::White {
+                BB_RANK_7
+            } else {
+                BB_RANK_2
+            };
             if bb(sq) & seventh_rank != 0 {
                 mg += sign * ROOK_ON_SEVENTH_BONUS.0;
                 eg += sign * ROOK_ON_SEVENTH_BONUS.1;
@@ -533,20 +599,28 @@ fn mobility_and_activity(board: &Board, ctx: &EvalContext) -> (i32, i32) {
 }
 
 fn outpost_bonus(sq: Square, color: Color, their_pawn_attacks: Bb, board: &Board) -> i32 {
-    if bb(sq) & their_pawn_attacks != 0 { return 0; }
+    if bb(sq) & their_pawn_attacks != 0 {
+        return 0;
+    }
     let r = sq_rank(sq);
     let in_outpost_zone = if color == Color::White {
         r >= 3 && r <= 5
     } else {
         r >= 2 && r <= 4
     };
-    if !in_outpost_zone { return 0; }
+    if !in_outpost_zone {
+        return 0;
+    }
     let our_pawn_attacks = if color == Color::White {
         pawn_attacks_white(board.pieces[color as usize][PieceType::Pawn as usize])
     } else {
         pawn_attacks_black(board.pieces[color as usize][PieceType::Pawn as usize])
     };
-    if our_pawn_attacks & bb(sq) != 0 { OUTPOST_SUPPORTED } else { OUTPOST_UNSUPPORTED }
+    if our_pawn_attacks & bb(sq) != 0 {
+        OUTPOST_SUPPORTED
+    } else {
+        OUTPOST_UNSUPPORTED
+    }
 }
 
 // ============================================================
@@ -692,13 +766,16 @@ fn trade_down_bonus(board: &Board) -> (i32, i32) {
     let b_mat = board.non_pawn_material(Color::Black);
     let mat_diff = w_mat - b_mat; // positive = white ahead
 
-    if mat_diff.abs() < 100 { return (0, 0); }
+    if mat_diff.abs() < 100 {
+        return (0, 0);
+    }
 
     // How many pieces have been traded? Start = 5100, each trade reduces this.
     let total_npm = w_mat + b_mat;
     let pieces_traded = (5100 - total_npm).max(0);
-    let trade_bonus = mat_diff.signum() * (mat_diff.abs() / 100) * TRADE_DOWN_BONUS_PER_100CP
-                      * pieces_traded / 5100;
+    let trade_bonus =
+        mat_diff.signum() * (mat_diff.abs() / 100) * TRADE_DOWN_BONUS_PER_100CP * pieces_traded
+            / 5100;
 
     // Primarily an endgame bonus
     (trade_bonus / 4, trade_bonus)
@@ -743,14 +820,17 @@ fn bad_bishop_eval(board: &Board) -> (i32, i32) {
     (mg, eg)
 }
 
-
 /// Build a bitboard mask of ranks ahead of `rank` for the given color, intersected with `file_mask`.
 fn ranks_ahead(color: Color, rank: u8, file_mask: Bb) -> Bb {
     let mut mask = 0u64;
     if color == Color::White {
-        for r in (rank + 1)..8 { mask |= BB_RANKS[r as usize]; }
+        for r in (rank + 1)..8 {
+            mask |= BB_RANKS[r as usize];
+        }
     } else {
-        for r in 0..rank { mask |= BB_RANKS[r as usize]; }
+        for r in 0..rank {
+            mask |= BB_RANKS[r as usize];
+        }
     }
     mask & file_mask
 }
@@ -759,17 +839,29 @@ fn ranks_ahead(color: Color, rank: u8, file_mask: Bb) -> Bb {
 fn ranks_behind_inclusive(color: Color, rank: u8, file_mask: Bb) -> Bb {
     let mut mask = 0u64;
     if color == Color::White {
-        for r in 0..=rank { mask |= BB_RANKS[r as usize]; }
+        for r in 0..=rank {
+            mask |= BB_RANKS[r as usize];
+        }
     } else {
-        for r in rank..8 { mask |= BB_RANKS[r as usize]; }
+        for r in rank..8 {
+            mask |= BB_RANKS[r as usize];
+        }
     }
     mask & file_mask
 }
 
 /// Evaluate a single passed pawn's bonuses (path clear, king proximity, connected, rook behind).
 fn passed_pawn_bonuses(
-    board: &Board, color: Color, sq: Square, rank: u8, file: u8,
-    file_bb: Bb, adj_files: Bb, our_pawns: Bb, their_pawns: Bb, promo_dist: u8,
+    board: &Board,
+    color: Color,
+    sq: Square,
+    rank: u8,
+    file: u8,
+    file_bb: Bb,
+    adj_files: Bb,
+    our_pawns: Bb,
+    their_pawns: Bb,
+    promo_dist: u8,
 ) -> (i32, i32) {
     let mut mg = 0i32;
     let mut eg = 0i32;
@@ -825,22 +917,34 @@ fn passed_pawn_bonuses(
 
 /// Check if a pawn is backward: advance square attacked by enemy, no friendly support behind.
 fn is_backward_pawn(
-    color: Color, sq: Square, rank: u8, adj_files: Bb,
-    our_pawns: Bb, their_pawn_attacks_bb: Bb,
+    color: Color,
+    sq: Square,
+    rank: u8,
+    adj_files: Bb,
+    our_pawns: Bb,
+    their_pawn_attacks_bb: Bb,
 ) -> bool {
     // Must not be isolated (handled separately)
-    if our_pawns & adj_files == 0 { return false; }
+    if our_pawns & adj_files == 0 {
+        return false;
+    }
 
     let advance_sq = if color == Color::White {
-        if rank >= 7 { return false; }
+        if rank >= 7 {
+            return false;
+        }
         sq + 8
     } else {
-        if rank == 0 { return false; }
+        if rank == 0 {
+            return false;
+        }
         sq - 8
     };
 
     // Advance square must be attacked by enemy pawn
-    if bb(advance_sq) & their_pawn_attacks_bb == 0 { return false; }
+    if bb(advance_sq) & their_pawn_attacks_bb == 0 {
+        return false;
+    }
 
     // No friendly pawn on adjacent files behind or equal rank can support
     let support_mask = ranks_behind_inclusive(color, rank, adj_files);
@@ -855,12 +959,16 @@ fn build_defendable_mask(color: Color, their_pawns: Bb) -> Bb {
         let sq = bb_pop_lsb(&mut tp);
         let f = sq_file(sq);
         let r = sq_rank(sq);
-        let adj = if f > 0 { BB_FILES[(f-1) as usize] } else { 0 }
-                | if f < 7 { BB_FILES[(f+1) as usize] } else { 0 };
+        let adj = if f > 0 { BB_FILES[(f - 1) as usize] } else { 0 }
+            | if f < 7 { BB_FILES[(f + 1) as usize] } else { 0 };
         if color == Color::White {
-            for dr in 0..r { defendable |= BB_RANKS[dr as usize] & adj; }
+            for dr in 0..r {
+                defendable |= BB_RANKS[dr as usize] & adj;
+            }
         } else {
-            for dr in (r+1)..8 { defendable |= BB_RANKS[dr as usize] & adj; }
+            for dr in (r + 1)..8 {
+                defendable |= BB_RANKS[dr as usize] & adj;
+            }
         }
     }
     defendable
@@ -868,11 +976,18 @@ fn build_defendable_mask(color: Color, their_pawns: Bb) -> Bb {
 
 /// Compute king proximity penalty for a single piece.
 fn king_proximity_penalty(sq: Square, king_sq: Square) -> (i32, i32) {
-    if king_sq == NO_SQUARE { return (0, 0); }
+    if king_sq == NO_SQUARE {
+        return (0, 0);
+    }
     let dist = chebyshev_distance(sq, king_sq);
-    if dist <= PIECE_KING_DISTANCE_THRESHOLD { return (0, 0); }
+    if dist <= PIECE_KING_DISTANCE_THRESHOLD {
+        return (0, 0);
+    }
     let excess = (dist - PIECE_KING_DISTANCE_THRESHOLD) as i32;
-    (excess * PIECE_FAR_FROM_KING_PENALTY.0, excess * PIECE_FAR_FROM_KING_PENALTY.1)
+    (
+        excess * PIECE_FAR_FROM_KING_PENALTY.0,
+        excess * PIECE_FAR_FROM_KING_PENALTY.1,
+    )
 }
 
 // ============================================================
@@ -887,7 +1002,7 @@ fn pawn_structure(board: &Board) -> (i32, i32) {
         let sign = if color == Color::White { 1 } else { -1 };
         let ci = color as usize;
         let ti = color.flip() as usize;
-        let our_pawns   = board.pieces[ci][PieceType::Pawn as usize];
+        let our_pawns = board.pieces[ci][PieceType::Pawn as usize];
         let their_pawns = board.pieces[ti][PieceType::Pawn as usize];
 
         let their_pawn_attacks_bb = if color == Color::White {
@@ -902,8 +1017,16 @@ fn pawn_structure(board: &Board) -> (i32, i32) {
             let file = sq_file(sq);
             let rank = sq_rank(sq);
             let file_bb = BB_FILES[file as usize];
-            let left_file  = if file > 0 { BB_FILES[(file-1) as usize] } else { 0 };
-            let right_file = if file < 7 { BB_FILES[(file+1) as usize] } else { 0 };
+            let left_file = if file > 0 {
+                BB_FILES[(file - 1) as usize]
+            } else {
+                0
+            };
+            let right_file = if file < 7 {
+                BB_FILES[(file + 1) as usize]
+            } else {
+                0
+            };
             let adj_files = left_file | right_file;
 
             // Doubled pawns
@@ -920,11 +1043,23 @@ fn pawn_structure(board: &Board) -> (i32, i32) {
 
             // Passed pawn
             let ahead_mask = ranks_ahead(color, rank, file_bb | adj_files);
-            let promo_dist = if color == Color::White { 7 - rank } else { rank };
+            let promo_dist = if color == Color::White {
+                7 - rank
+            } else {
+                rank
+            };
             if their_pawns & ahead_mask == 0 && our_pawns & ranks_ahead(color, rank, file_bb) == 0 {
                 let (pmg, peg) = passed_pawn_bonuses(
-                    board, color, sq, rank, file, file_bb, adj_files,
-                    our_pawns, their_pawns, promo_dist,
+                    board,
+                    color,
+                    sq,
+                    rank,
+                    file,
+                    file_bb,
+                    adj_files,
+                    our_pawns,
+                    their_pawns,
+                    promo_dist,
                 );
                 mg += pmg;
                 eg += peg;
@@ -964,7 +1099,9 @@ fn king_safety(board: &Board, ctx: &EvalContext) -> (i32, i32) {
         let ci = color as usize;
         let ti = color.flip() as usize;
         let king_sq = board.king_sq[ci];
-        if king_sq == NO_SQUARE { continue; }
+        if king_sq == NO_SQUARE {
+            continue;
+        }
 
         // Pawn shield
         let king_file = sq_file(king_sq);
@@ -974,8 +1111,16 @@ fn king_safety(board: &Board, ctx: &EvalContext) -> (i32, i32) {
             BB_RANK_6 | BB_RANK_7
         };
         let shield_files = BB_FILES[king_file as usize]
-            | (if king_file > 0 { BB_FILES[(king_file - 1) as usize] } else { 0 })
-            | (if king_file < 7 { BB_FILES[(king_file + 1) as usize] } else { 0 });
+            | (if king_file > 0 {
+                BB_FILES[(king_file - 1) as usize]
+            } else {
+                0
+            })
+            | (if king_file < 7 {
+                BB_FILES[(king_file + 1) as usize]
+            } else {
+                0
+            });
         let shield = board.pieces[ci][PieceType::Pawn as usize] & shield_rank & shield_files;
         let shield_count = shield.count_ones() as i32;
         mg += sign * (shield_count * PAWN_SHIELD_PER_PAWN - PAWN_SHIELD_BASE_PENALTY);
@@ -988,25 +1133,34 @@ fn king_safety(board: &Board, ctx: &EvalContext) -> (i32, i32) {
         let mut their_knights = board.pieces[ti][PieceType::Knight as usize];
         while their_knights != 0 {
             let sq = bb_pop_lsb(&mut their_knights);
-            if ctx.atk.knight[sq as usize] & king_zone != 0 { attack_units += KING_ATTACK_WEIGHT_KNIGHT; }
+            if ctx.atk.knight[sq as usize] & king_zone != 0 {
+                attack_units += KING_ATTACK_WEIGHT_KNIGHT;
+            }
         }
         let mut their_bishops = board.pieces[ti][PieceType::Bishop as usize];
         while their_bishops != 0 {
             let sq = bb_pop_lsb(&mut their_bishops);
-            if ctx.atk.bishop_attacks(sq, occ) & king_zone != 0 { attack_units += KING_ATTACK_WEIGHT_BISHOP; }
+            if ctx.atk.bishop_attacks(sq, occ) & king_zone != 0 {
+                attack_units += KING_ATTACK_WEIGHT_BISHOP;
+            }
         }
         let mut their_rooks = board.pieces[ti][PieceType::Rook as usize];
         while their_rooks != 0 {
             let sq = bb_pop_lsb(&mut their_rooks);
-            if ctx.atk.rook_attacks(sq, occ) & king_zone != 0 { attack_units += KING_ATTACK_WEIGHT_ROOK; }
+            if ctx.atk.rook_attacks(sq, occ) & king_zone != 0 {
+                attack_units += KING_ATTACK_WEIGHT_ROOK;
+            }
         }
         let mut their_queens = board.pieces[ti][PieceType::Queen as usize];
         while their_queens != 0 {
             let sq = bb_pop_lsb(&mut their_queens);
-            if ctx.atk.queen_attacks(sq, occ) & king_zone != 0 { attack_units += KING_ATTACK_WEIGHT_QUEEN; }
+            if ctx.atk.queen_attacks(sq, occ) & king_zone != 0 {
+                attack_units += KING_ATTACK_WEIGHT_QUEEN;
+            }
         }
 
-        let penalty = KING_SAFETY_TABLE.iter()
+        let penalty = KING_SAFETY_TABLE
+            .iter()
             .find(|&&(max_units, _)| attack_units <= max_units)
             .map(|&(_, p)| p)
             .unwrap_or(230);
@@ -1015,8 +1169,10 @@ fn king_safety(board: &Board, ctx: &EvalContext) -> (i32, i32) {
         // King centralization bonus (endgame only)
         // Karpov's endgame mastery relied on active king placement
         let king_rank = sq_rank(king_sq) as i32;
-        let center_dist = (3 - king_file as i32).abs().min((4 - king_file as i32).abs())
-                        + (3 - king_rank).abs().min((4 - king_rank).abs());
+        let center_dist = (3 - king_file as i32)
+            .abs()
+            .min((4 - king_file as i32).abs())
+            + (3 - king_rank).abs().min((4 - king_rank).abs());
         eg += sign * (3 - center_dist).max(0) * KING_CENTRALIZATION_EG;
     }
 
@@ -1093,11 +1249,13 @@ fn knight_vs_bishop_eval(board: &Board) -> (i32, i32) {
 
     // Count pawns on center files (d and e) to determine if position is closed
     let center_files = BB_FILES[3] | BB_FILES[4]; // d and e files
-    let all_pawns = board.pieces[0][PieceType::Pawn as usize]
-                  | board.pieces[1][PieceType::Pawn as usize];
+    let all_pawns =
+        board.pieces[0][PieceType::Pawn as usize] | board.pieces[1][PieceType::Pawn as usize];
     let center_pawns = (all_pawns & center_files).count_ones();
 
-    if center_pawns < CLOSED_CENTER_PAWN_THRESHOLD { return (0, 0); }
+    if center_pawns < CLOSED_CENTER_PAWN_THRESHOLD {
+        return (0, 0);
+    }
 
     for &color in &[Color::White, Color::Black] {
         let sign = if color == Color::White { 1 } else { -1 };
@@ -1126,19 +1284,27 @@ fn count_pawn_breaks(color: Color, our_pawns: Bb, their_pawns: Bb, occ_all: Bb) 
     while tp != 0 {
         let sq = bb_pop_lsb(&mut tp);
         let f = sq_file(sq);
-        let adj = if f > 0 { BB_FILES[(f-1) as usize] } else { 0 }
-                | if f < 7 { BB_FILES[(f+1) as usize] } else { 0 };
-        if adj & our_pawns == 0 { continue; }
+        let adj = if f > 0 { BB_FILES[(f - 1) as usize] } else { 0 }
+            | if f < 7 { BB_FILES[(f + 1) as usize] } else { 0 };
+        if adj & our_pawns == 0 {
+            continue;
+        }
 
         // They are the opponent of `color`. If color is White, they are Black (advance = rank-1).
         let advance_sq = if color == Color::White {
-            if sq_rank(sq) == 0 { continue; }
+            if sq_rank(sq) == 0 {
+                continue;
+            }
             sq - 8
         } else {
-            if sq_rank(sq) == 7 { continue; }
+            if sq_rank(sq) == 7 {
+                continue;
+            }
             sq + 8
         };
-        if occ_all & bb(advance_sq) == 0 { count += 1; }
+        if occ_all & bb(advance_sq) == 0 {
+            count += 1;
+        }
     }
     count
 }
@@ -1193,10 +1359,14 @@ fn piece_coordination_eval(board: &Board, ctx: &EvalContext) -> (i32, i32) {
 
     // Quadrant masks (computed once)
     let q_masks: [Bb; 4] = [
-        (BB_FILE_A | BB_FILE_B | BB_FILE_C | BB_FILE_D) & (BB_RANK_1 | BB_RANK_2 | BB_RANK_3 | BB_RANK_4),
-        (BB_FILE_E | BB_FILE_F | BB_FILE_G | BB_FILE_H) & (BB_RANK_1 | BB_RANK_2 | BB_RANK_3 | BB_RANK_4),
-        (BB_FILE_A | BB_FILE_B | BB_FILE_C | BB_FILE_D) & (BB_RANK_5 | BB_RANK_6 | BB_RANK_7 | BB_RANK_8),
-        (BB_FILE_E | BB_FILE_F | BB_FILE_G | BB_FILE_H) & (BB_RANK_5 | BB_RANK_6 | BB_RANK_7 | BB_RANK_8),
+        (BB_FILE_A | BB_FILE_B | BB_FILE_C | BB_FILE_D)
+            & (BB_RANK_1 | BB_RANK_2 | BB_RANK_3 | BB_RANK_4),
+        (BB_FILE_E | BB_FILE_F | BB_FILE_G | BB_FILE_H)
+            & (BB_RANK_1 | BB_RANK_2 | BB_RANK_3 | BB_RANK_4),
+        (BB_FILE_A | BB_FILE_B | BB_FILE_C | BB_FILE_D)
+            & (BB_RANK_5 | BB_RANK_6 | BB_RANK_7 | BB_RANK_8),
+        (BB_FILE_E | BB_FILE_F | BB_FILE_G | BB_FILE_H)
+            & (BB_RANK_5 | BB_RANK_6 | BB_RANK_7 | BB_RANK_8),
     ];
 
     for &color in &[Color::White, Color::Black] {
@@ -1270,7 +1440,7 @@ fn piece_coordination_eval(board: &Board, ctx: &EvalContext) -> (i32, i32) {
         let center = BB_EXTENDED_CENTER;
         let mut overlap_count = 0i32;
         for i in 0..4 {
-            for j in (i+1)..4 {
+            for j in (i + 1)..4 {
                 overlap_count += (piece_attacks[i] & piece_attacks[j] & center).count_ones() as i32;
             }
         }
@@ -1290,7 +1460,9 @@ fn piece_coordination_eval(board: &Board, ctx: &EvalContext) -> (i32, i32) {
         // 5. Quadrant spread
         let mut quadrants_occupied = 0i32;
         for &qm in &q_masks {
-            if our_non_pawn_non_king & qm != 0 { quadrants_occupied += 1; }
+            if our_non_pawn_non_king & qm != 0 {
+                quadrants_occupied += 1;
+            }
         }
         let spread_bonus = (quadrants_occupied - 1).max(0);
         mg += sign * spread_bonus * QUADRANT_SPREAD_BONUS.0;
@@ -1299,7 +1471,6 @@ fn piece_coordination_eval(board: &Board, ctx: &EvalContext) -> (i32, i32) {
 
     (mg, eg)
 }
-
 
 // ============================================================
 // Section 18: Advanced pawns (data-driven, effect +0.328)
@@ -1329,8 +1500,14 @@ fn advanced_pawn_eval(board: &Board) -> (i32, i32) {
         let on_6 = (our_pawns & r6).count_ones() as i32;
         let on_7 = (our_pawns & r7).count_ones() as i32;
 
-        mg += sign * (on_5 * ADVANCED_PAWN_BONUS_MG[0] + on_6 * ADVANCED_PAWN_BONUS_MG[1] + on_7 * ADVANCED_PAWN_BONUS_MG[2]);
-        eg += sign * (on_5 * ADVANCED_PAWN_BONUS_EG[0] + on_6 * ADVANCED_PAWN_BONUS_EG[1] + on_7 * ADVANCED_PAWN_BONUS_EG[2]);
+        mg += sign
+            * (on_5 * ADVANCED_PAWN_BONUS_MG[0]
+                + on_6 * ADVANCED_PAWN_BONUS_MG[1]
+                + on_7 * ADVANCED_PAWN_BONUS_MG[2]);
+        eg += sign
+            * (on_5 * ADVANCED_PAWN_BONUS_EG[0]
+                + on_6 * ADVANCED_PAWN_BONUS_EG[1]
+                + on_7 * ADVANCED_PAWN_BONUS_EG[2]);
     }
 
     (mg, eg)
@@ -1376,7 +1553,8 @@ fn min_piece_mobility_eval(board: &Board, ctx: &EvalContext) -> (i32, i32) {
         while bishops != 0 {
             has_piece = true;
             let sq = bb_pop_lsb(&mut bishops);
-            let mob = (ctx.atk.bishop_attacks(sq, occ) & !our_occ & !their_pawn_attacks).count_ones();
+            let mob =
+                (ctx.atk.bishop_attacks(sq, occ) & !our_occ & !their_pawn_attacks).count_ones();
             min_mob = min_mob.min(mob);
         }
 
@@ -1394,7 +1572,8 @@ fn min_piece_mobility_eval(board: &Board, ctx: &EvalContext) -> (i32, i32) {
         while queens != 0 {
             has_piece = true;
             let sq = bb_pop_lsb(&mut queens);
-            let mob = (ctx.atk.queen_attacks(sq, occ) & !our_occ & !their_pawn_attacks).count_ones();
+            let mob =
+                (ctx.atk.queen_attacks(sq, occ) & !our_occ & !their_pawn_attacks).count_ones();
             min_mob = min_mob.min(mob);
         }
 
@@ -1417,9 +1596,20 @@ mod tests {
         let rank = sq_rank(sq);
         let file = sq_file(sq);
         let file_bb = BB_FILES[file as usize];
-        let adj_files = (if file > 0 { BB_FILES[(file - 1) as usize] } else { 0 })
-            | (if file < 7 { BB_FILES[(file + 1) as usize] } else { 0 });
-        let promo_dist = if color == Color::White { 7 - rank } else { rank };
+        let adj_files = (if file > 0 {
+            BB_FILES[(file - 1) as usize]
+        } else {
+            0
+        }) | (if file < 7 {
+            BB_FILES[(file + 1) as usize]
+        } else {
+            0
+        });
+        let promo_dist = if color == Color::White {
+            7 - rank
+        } else {
+            rank
+        };
 
         passed_pawn_bonuses(
             &board,
