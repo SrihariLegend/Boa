@@ -1,11 +1,11 @@
 {
-  "name": "karpov-match-manager",
+  "name": "boa-match-manager",
   "version": "1.0.0",
-  "description": "Terminal match manager for Karpov engine approval runs.",
+  "description": "Terminal match manager for Boa engine approval runs.",
   "type": "module",
   "bin": {
     "match-manager": "dist/cli.js",
-    "karpov-match-manager": "dist/cli.js"
+    "boa-match-manager": "dist/cli.js"
   },
   "main": "dist/cli.js",
   "scripts": {

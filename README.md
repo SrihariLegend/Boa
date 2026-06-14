@@ -1,6 +1,6 @@
-# Karpov
+# Boa
 
-Karpov is a UCI chess engine written in Rust. Its evaluation and search are tuned toward restriction, prophylaxis, and squeeze-style positions: reduce the opponent's useful moves, improve steadily, and convert mistakes.
+Boa is a UCI chess engine written in Rust. Its evaluation and search are tuned toward restriction, prophylaxis, and squeeze-style positions: reduce the opponent's useful moves, improve steadily, and convert mistakes.
 
 ## Build
 
@@ -11,7 +11,7 @@ cargo build --release
 The engine binary is written to:
 
 ```sh
-target/release/karpov
+target/release/boa
 ```
 
 ## Run
@@ -19,7 +19,7 @@ target/release/karpov
 Start the engine directly:
 
 ```sh
-./target/release/karpov
+./target/release/boa
 ```
 
 It speaks UCI, so it can also be loaded by chess GUIs and match runners that support UCI engines.
@@ -59,7 +59,7 @@ It depends on:
 
 - `tools/cutechess-cli`
 - `tools/openings.epd`
-- `target/release/karpov`
+- `target/release/boa`
 
 ## Development
 

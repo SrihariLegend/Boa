@@ -33,7 +33,7 @@ export const CUTECHESS = fs.existsSync(LOCAL_CUTECHESS)
   ? LOCAL_CUTECHESS
   : findExecutable("cutechess-cli") ?? LOCAL_CUTECHESS;
 export const OPENINGS = path.join(paths.tools, "openings.epd");
-export const KARPOV_BIN = path.join(paths.root, "target", "release", "karpov");
+export const BOA_BIN = path.join(paths.root, "target", "release", "boa");
 export const STOCKFISH = findExecutable("stockfish") ?? "/usr/games/stockfish";
 export const DEFAULT_CONCURRENCY = Math.max(1, Math.min(20, os.cpus().length - 4));
 
@@ -152,7 +152,7 @@ export function listEngines(): EngineMeta[] {
     .filter((entry) => entry.isDirectory())
     .map((entry) => {
       const meta = readJson<EngineMeta | null>(path.join(ENGINES_DIR, entry.name, "meta.json"), null);
-      const binary = path.join(ENGINES_DIR, entry.name, "karpov");
+      const binary = path.join(ENGINES_DIR, entry.name, "boa");
       return meta && fs.existsSync(binary) ? meta : null;
     })
     .filter((meta): meta is EngineMeta => Boolean(meta))
@@ -166,11 +166,11 @@ export async function snapshotEngine(nameInput: string, note = ""): Promise<Engi
   if (fs.existsSync(destDir)) throw new Error(`Snapshot '${name}' already exists`);
 
   await runCommand("cargo", ["build", "--release"], paths.root, 300_000);
-  if (!fs.existsSync(KARPOV_BIN)) throw new Error(`Build completed but binary was not found at ${KARPOV_BIN}`);
+  if (!fs.existsSync(BOA_BIN)) throw new Error(`Build completed but binary was not found at ${BOA_BIN}`);
 
   fs.mkdirSync(destDir);
-  const destBin = path.join(destDir, "karpov");
-  fs.copyFileSync(KARPOV_BIN, destBin);
+  const destBin = path.join(destDir, "boa");
+  fs.copyFileSync(BOA_BIN, destBin);
   fs.chmodSync(destBin, fs.statSync(destBin).mode | 0o111);
   const meta: EngineMeta = {
     name,
@@ -190,7 +190,7 @@ export function importEngine(nameInput: string, binaryPath: string, note = ""): 
   const destDir = path.join(ENGINES_DIR, name);
   if (fs.existsSync(destDir)) throw new Error(`Snapshot '${name}' already exists`);
   fs.mkdirSync(destDir);
-  const destBin = path.join(destDir, "karpov");
+  const destBin = path.join(destDir, "boa");
   fs.copyFileSync(source, destBin);
   fs.chmodSync(destBin, fs.statSync(destBin).mode | 0o111);
   const meta: EngineMeta = {
@@ -253,7 +253,7 @@ function resolveEngineSpec(spec: EngineSpec, settings: MatchSettings, usedNames:
     cmd = STOCKFISH;
   } else {
     const snapshot = safeName(spec.name);
-    cmd = path.join(ENGINES_DIR, snapshot, "karpov");
+    cmd = path.join(ENGINES_DIR, snapshot, "boa");
     if (!fs.existsSync(cmd)) throw new Error(`No snapshot named '${snapshot}'`);
     name = snapshot;
     opts = {Hash: String(settings.hash ?? 128)};

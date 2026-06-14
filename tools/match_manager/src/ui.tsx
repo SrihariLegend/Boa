@@ -78,7 +78,7 @@ function Header(): React.ReactElement {
   const running = summaries.filter((m) => m.status === "running").length;
   return (
     <Box borderStyle="round" borderColor="yellow" paddingX={1} justifyContent="space-between">
-      <Text color="yellow" bold>Karpov Match Manager</Text>
+      <Text color="yellow" bold>Boa Match Manager</Text>
       <Text color={running ? "green" : "gray"}>{running} running | {summaries.length} matches | {listEngines().length} engines</Text>
     </Box>
   );
@@ -196,7 +196,7 @@ function Snapshot({goBack, flash}: {goBack: () => void; flash: (kind: "ok" | "er
   return (
     <Box marginTop={1} flexDirection="column">
       <Text bold>Snapshot Current Build</Text>
-      <Text color="gray">Builds cargo --release from repo root and stores target/release/karpov.</Text>
+      <Text color="gray">Builds cargo --release from repo root and stores target/release/boa.</Text>
       <Field label="Name" active={field === "name"} value={field === "name" ? <TextInput value={name} onChange={setName} /> : name} />
       <Field label="Note" active={field === "note"} value={field === "note" ? <TextInput value={note} onChange={setNote} /> : note} />
       <Text color="yellow">{busy ? "Building..." : "Enter creates snapshot"}</Text>
@@ -418,7 +418,7 @@ function NewMatch({setScreen, flash}: {setScreen: (screen: Screen) => void; flas
   if (engineChoices.length === 0) {
     return (
       <Box marginTop={1} flexDirection="column">
-        <Text color="red">No engines available. Snapshot or import a Karpov build first.</Text>
+        <Text color="red">No engines available. Snapshot or import a Boa build first.</Text>
         <Text color="gray">Press b to return.</Text>
       </Box>
     );

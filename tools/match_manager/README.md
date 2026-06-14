@@ -1,4 +1,4 @@
-# Karpov Match Manager
+# Boa Match Manager
 
 Terminal UI for engine approval matches.
 
@@ -17,7 +17,7 @@ The CLI persists match data in:
 Main features:
 
 - Snapshot the current `cargo build --release` engine.
-- Import an existing Karpov binary.
+- Import an existing Boa binary.
 - Delete unused snapshots.
 - Start cutechess matches against snapshots or Stockfish.
 - Configure games, time control, concurrency, hash, openings, adjudication, SPRT, and UCI options.

@@ -1,10 +1,10 @@
 [package]
-name = "karpov"
+name = "boa"
 version = "0.1.0"
 edition = "2021"
 
 [[bin]]
-name = "karpov"
+name = "boa"
 path = "src/main.rs"
 
 [dependencies]
