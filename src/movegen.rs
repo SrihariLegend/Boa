@@ -7,33 +7,38 @@
 
 #![allow(dead_code)]
 
-use crate::types::*;
 use crate::board::Board;
+use crate::types::*;
 
 // ============================================================
 // Section 1: Attack tables
 // ============================================================
 
 pub struct AttackTables {
-    pub knight:         [Bb; 64],
-    pub king:           [Bb; 64],
-    rook_magics:        [MagicEntry; 64],
-    bishop_magics:      [MagicEntry; 64],
-    rook_table:         Vec<Bb>,
-    bishop_table:       Vec<Bb>,
+    pub knight: [Bb; 64],
+    pub king: [Bb; 64],
+    rook_magics: [MagicEntry; 64],
+    bishop_magics: [MagicEntry; 64],
+    rook_table: Vec<Bb>,
+    bishop_table: Vec<Bb>,
 }
 
 #[derive(Clone, Copy)]
 struct MagicEntry {
-    mask:   Bb,
-    magic:  u64,
-    shift:  u32,
+    mask: Bb,
+    magic: u64,
+    shift: u32,
     offset: usize,
 }
 
 impl Default for MagicEntry {
     fn default() -> Self {
-        MagicEntry { mask: 0, magic: 0, shift: 0, offset: 0 }
+        MagicEntry {
+            mask: 0,
+            magic: 0,
+            shift: 0,
+            offset: 0,
+        }
     }
 }
 
@@ -43,10 +48,18 @@ fn gen_rook_mask(sq: Square) -> Bb {
     let r = sq_rank(sq) as i32;
     let f = sq_file(sq) as i32;
     let mut mask = 0u64;
-    for i in (f + 1)..7 { mask |= 1u64 << (r * 8 + i); }
-    for i in 1..f       { mask |= 1u64 << (r * 8 + i); }
-    for i in (r + 1)..7 { mask |= 1u64 << (i * 8 + f); }
-    for i in 1..r       { mask |= 1u64 << (i * 8 + f); }
+    for i in (f + 1)..7 {
+        mask |= 1u64 << (r * 8 + i);
+    }
+    for i in 1..f {
+        mask |= 1u64 << (r * 8 + i);
+    }
+    for i in (r + 1)..7 {
+        mask |= 1u64 << (i * 8 + f);
+    }
+    for i in 1..r {
+        mask |= 1u64 << (i * 8 + f);
+    }
     mask
 }
 
@@ -54,11 +67,13 @@ fn gen_bishop_mask(sq: Square) -> Bb {
     let r = sq_rank(sq) as i32;
     let f = sq_file(sq) as i32;
     let mut mask = 0u64;
-    for (dr, df) in [(1i32,1i32),(1,-1),(-1,1),(-1,-1)] {
-        let mut cr = r + dr; let mut cf = f + df;
+    for (dr, df) in [(1i32, 1i32), (1, -1), (-1, 1), (-1, -1)] {
+        let mut cr = r + dr;
+        let mut cf = f + df;
         while cr > 0 && cr < 7 && cf > 0 && cf < 7 {
             mask |= 1u64 << (cr * 8 + cf);
-            cr += dr; cf += df;
+            cr += dr;
+            cf += df;
         }
     }
     mask
@@ -70,13 +85,17 @@ fn sliding_attacks_rook(sq: Square, occ: Bb) -> Bb {
     let r = sq_rank(sq) as i32;
     let f = sq_file(sq) as i32;
     let mut atk = 0u64;
-    for (dr, df) in [(0i32,1i32),(0,-1),(1,0),(-1,0)] {
-        let mut cr = r + dr; let mut cf = f + df;
+    for (dr, df) in [(0i32, 1i32), (0, -1), (1, 0), (-1, 0)] {
+        let mut cr = r + dr;
+        let mut cf = f + df;
         while cr >= 0 && cr <= 7 && cf >= 0 && cf <= 7 {
             let s = (cr * 8 + cf) as u32;
             atk |= 1u64 << s;
-            if occ & (1u64 << s) != 0 { break; }
-            cr += dr; cf += df;
+            if occ & (1u64 << s) != 0 {
+                break;
+            }
+            cr += dr;
+            cf += df;
         }
     }
     atk
@@ -86,13 +105,17 @@ fn sliding_attacks_bishop(sq: Square, occ: Bb) -> Bb {
     let r = sq_rank(sq) as i32;
     let f = sq_file(sq) as i32;
     let mut atk = 0u64;
-    for (dr, df) in [(1i32,1i32),(1,-1),(-1,1),(-1,-1)] {
-        let mut cr = r + dr; let mut cf = f + df;
+    for (dr, df) in [(1i32, 1i32), (1, -1), (-1, 1), (-1, -1)] {
+        let mut cr = r + dr;
+        let mut cf = f + df;
         while cr >= 0 && cr <= 7 && cf >= 0 && cf <= 7 {
             let s = (cr * 8 + cf) as u32;
             atk |= 1u64 << s;
-            if occ & (1u64 << s) != 0 { break; }
-            cr += dr; cf += df;
+            if occ & (1u64 << s) != 0 {
+                break;
+            }
+            cr += dr;
+            cf += df;
         }
     }
     atk
@@ -106,11 +129,11 @@ fn gen_knight_attacks(sq: Square) -> Bb {
     atk |= (bb_sq << 17) & !BB_FILE_A;
     atk |= (bb_sq << 15) & !BB_FILE_H;
     atk |= (bb_sq << 10) & !(BB_FILE_A | BB_FILE_B);
-    atk |= (bb_sq <<  6) & !(BB_FILE_G | BB_FILE_H);
+    atk |= (bb_sq << 6) & !(BB_FILE_G | BB_FILE_H);
     atk |= (bb_sq >> 17) & !BB_FILE_H;
     atk |= (bb_sq >> 15) & !BB_FILE_A;
     atk |= (bb_sq >> 10) & !(BB_FILE_G | BB_FILE_H);
-    atk |= (bb_sq >>  6) & !(BB_FILE_A | BB_FILE_B);
+    atk |= (bb_sq >> 6) & !(BB_FILE_A | BB_FILE_B);
     atk
 }
 
@@ -154,23 +177,36 @@ fn enumerate_subsets(mask: Bb) -> Vec<Bb> {
     loop {
         subsets.push(subset);
         subset = subset.wrapping_sub(mask) & mask;
-        if subset == 0 { break; }
+        if subset == 0 {
+            break;
+        }
     }
     subsets
 }
 
 /// Find a valid magic number for a given square
 fn find_magic(sq: Square, is_rook: bool, rng: &mut Rng) -> (u64, Vec<Bb>) {
-    let mask = if is_rook { gen_rook_mask(sq) } else { gen_bishop_mask(sq) };
+    let mask = if is_rook {
+        gen_rook_mask(sq)
+    } else {
+        gen_bishop_mask(sq)
+    };
     let bits = mask.count_ones();
     let shift = 64 - bits;
     let size = 1usize << bits;
 
     // Pre-compute all occupancy -> attack mappings
     let subsets = enumerate_subsets(mask);
-    let attacks: Vec<Bb> = subsets.iter().map(|&occ| {
-        if is_rook { sliding_attacks_rook(sq, occ) } else { sliding_attacks_bishop(sq, occ) }
-    }).collect();
+    let attacks: Vec<Bb> = subsets
+        .iter()
+        .map(|&occ| {
+            if is_rook {
+                sliding_attacks_rook(sq, occ)
+            } else {
+                sliding_attacks_bishop(sq, occ)
+            }
+        })
+        .collect();
 
     // Try random magic candidates until one works
     let mut table = vec![0u64; size];
@@ -181,7 +217,9 @@ fn find_magic(sq: Square, is_rook: bool, rng: &mut Rng) -> (u64, Vec<Bb>) {
         }
 
         // Clear table
-        for v in table.iter_mut() { *v = 0; }
+        for v in table.iter_mut() {
+            *v = 0;
+        }
 
         let mut fail = false;
         for (i, &occ) in subsets.iter().enumerate() {
@@ -203,16 +241,16 @@ fn find_magic(sq: Square, is_rook: bool, rng: &mut Rng) -> (u64, Vec<Bb>) {
 impl AttackTables {
     pub fn init() -> Self {
         let mut knight = [0u64; 64];
-        let mut king   = [0u64; 64];
+        let mut king = [0u64; 64];
         for sq in 0..64u8 {
             knight[sq as usize] = gen_knight_attacks(sq);
-            king[sq as usize]   = gen_king_attacks(sq);
+            king[sq as usize] = gen_king_attacks(sq);
         }
 
         let mut rng = Rng(0x12345678DEADBEEF);
-        let mut rook_magics   = [MagicEntry::default(); 64];
+        let mut rook_magics = [MagicEntry::default(); 64];
         let mut bishop_magics = [MagicEntry::default(); 64];
-        let mut rook_table:   Vec<Bb> = Vec::new();
+        let mut rook_table: Vec<Bb> = Vec::new();
         let mut bishop_table: Vec<Bb> = Vec::new();
 
         for sq in 0..64u8 {
@@ -223,7 +261,12 @@ impl AttackTables {
             let (magic, table) = find_magic(sq, true, &mut rng);
             let offset = rook_table.len();
             rook_table.extend_from_slice(&table);
-            rook_magics[sq as usize] = MagicEntry { mask, magic, shift, offset };
+            rook_magics[sq as usize] = MagicEntry {
+                mask,
+                magic,
+                shift,
+                offset,
+            };
 
             // Bishop
             let mask = gen_bishop_mask(sq);
@@ -232,7 +275,12 @@ impl AttackTables {
             let (magic, table) = find_magic(sq, false, &mut rng);
             let offset = bishop_table.len();
             bishop_table.extend_from_slice(&table);
-            bishop_magics[sq as usize] = MagicEntry { mask, magic, shift, offset };
+            bishop_magics[sq as usize] = MagicEntry {
+                mask,
+                magic,
+                shift,
+                offset,
+            };
         }
 
         AttackTables {
@@ -307,14 +355,18 @@ pub fn pawn_attacks_black(pawns: Bb) -> Bb {
 // ============================================================
 
 pub struct MoveList {
-    pub moves:  [Move; 256],
+    pub moves: [Move; 256],
     pub scores: [i32; 256],
-    pub count:  usize,
+    pub count: usize,
 }
 
 impl MoveList {
     pub fn new() -> Self {
-        MoveList { moves: [0; 256], scores: [0; 256], count: 0 }
+        MoveList {
+            moves: [0; 256],
+            scores: [0; 256],
+            count: 0,
+        }
     }
 
     #[inline(always)]
@@ -348,12 +400,12 @@ impl MoveList {
 /// Generate all pseudo-legal moves for the side to move.
 pub fn gen_moves(board: &Board, atk: &AttackTables) -> MoveList {
     let mut list = MoveList::new();
-    let us   = board.side;
+    let us = board.side;
     let them = us.flip();
-    let ui   = us as usize;
-    let ti   = them as usize;
-    let occ  = board.occ_all;
-    let our  = board.occ[ui];
+    let ui = us as usize;
+    let ti = them as usize;
+    let occ = board.occ_all;
+    let our = board.occ[ui];
     let their = board.occ[ti];
 
     // ---- Pawns ----
@@ -410,11 +462,11 @@ pub fn gen_moves(board: &Board, atk: &AttackTables) -> MoveList {
 /// Generate only captures and promotions (for quiescence search)
 pub fn gen_captures(board: &Board, atk: &AttackTables) -> MoveList {
     let mut list = MoveList::new();
-    let us   = board.side;
+    let us = board.side;
     let them = us.flip();
-    let ui   = us as usize;
-    let ti   = them as usize;
-    let occ  = board.occ_all;
+    let ui = us as usize;
+    let ti = them as usize;
+    let occ = board.occ_all;
     let their = board.occ[ti];
 
     // Pawn captures + promotions
@@ -466,7 +518,7 @@ pub fn gen_captures(board: &Board, atk: &AttackTables) -> MoveList {
 
 fn gen_pawn_moves_white(pawns: Bb, their: Bb, ep_sq: Square, occ: Bb, list: &mut MoveList) {
     let single = (pawns << 8) & !occ;
-    let promo  = single & BB_RANK_8;
+    let promo = single & BB_RANK_8;
     let normal = single & !BB_RANK_8;
     add_pawn_moves(normal, -8i32, list);
     add_pawn_promos(promo, -8i32, list);
@@ -474,11 +526,11 @@ fn gen_pawn_moves_white(pawns: Bb, their: Bb, ep_sq: Square, occ: Bb, list: &mut
     let double = ((single & BB_RANK_3) << 8) & !occ;
     add_pawn_moves(double, -16i32, list);
 
-    let cap_left  = (pawns << 9) & !BB_FILE_A & their;
+    let cap_left = (pawns << 9) & !BB_FILE_A & their;
     let cap_right = (pawns << 7) & !BB_FILE_H & their;
-    add_pawn_moves(cap_left  & !BB_RANK_8, -9i32, list);
+    add_pawn_moves(cap_left & !BB_RANK_8, -9i32, list);
     add_pawn_moves(cap_right & !BB_RANK_8, -7i32, list);
-    add_pawn_promos(cap_left  & BB_RANK_8, -9i32, list);
+    add_pawn_promos(cap_left & BB_RANK_8, -9i32, list);
     add_pawn_promos(cap_right & BB_RANK_8, -7i32, list);
 
     if ep_sq != NO_SQUARE {
@@ -494,7 +546,7 @@ fn gen_pawn_moves_white(pawns: Bb, their: Bb, ep_sq: Square, occ: Bb, list: &mut
 
 fn gen_pawn_moves_black(pawns: Bb, their: Bb, ep_sq: Square, occ: Bb, list: &mut MoveList) {
     let single = (pawns >> 8) & !occ;
-    let promo  = single & BB_RANK_1;
+    let promo = single & BB_RANK_1;
     let normal = single & !BB_RANK_1;
     add_pawn_moves(normal, 8i32, list);
     add_pawn_promos(promo, 8i32, list);
@@ -502,11 +554,11 @@ fn gen_pawn_moves_black(pawns: Bb, their: Bb, ep_sq: Square, occ: Bb, list: &mut
     let double = ((single & BB_RANK_6) >> 8) & !occ;
     add_pawn_moves(double, 16i32, list);
 
-    let cap_left  = (pawns >> 7) & !BB_FILE_A & their;
+    let cap_left = (pawns >> 7) & !BB_FILE_A & their;
     let cap_right = (pawns >> 9) & !BB_FILE_H & their;
-    add_pawn_moves(cap_left  & !BB_RANK_1, 7i32, list);
+    add_pawn_moves(cap_left & !BB_RANK_1, 7i32, list);
     add_pawn_moves(cap_right & !BB_RANK_1, 9i32, list);
-    add_pawn_promos(cap_left  & BB_RANK_1, 7i32, list);
+    add_pawn_promos(cap_left & BB_RANK_1, 7i32, list);
     add_pawn_promos(cap_right & BB_RANK_1, 9i32, list);
 
     if ep_sq != NO_SQUARE {
@@ -521,15 +573,15 @@ fn gen_pawn_moves_black(pawns: Bb, their: Bb, ep_sq: Square, occ: Bb, list: &mut
 }
 
 fn gen_pawn_captures_white(pawns: Bb, their: Bb, ep_sq: Square, occ: Bb, list: &mut MoveList) {
-    let cap_left  = (pawns << 9) & !BB_FILE_A & their;
+    let cap_left = (pawns << 9) & !BB_FILE_A & their;
     let cap_right = (pawns << 7) & !BB_FILE_H & their;
     // Push-promotions require an EMPTY target square. Without the !occ mask
     // a blocked pawn "promotes onto" the blocker — and when the blocker is
     // the enemy king, make_move captures the king and corrupts the board.
     add_pawn_promos((pawns << 8) & BB_RANK_8 & !occ, -8i32, list);
-    add_pawn_promos(cap_left  & BB_RANK_8, -9i32, list);
+    add_pawn_promos(cap_left & BB_RANK_8, -9i32, list);
     add_pawn_promos(cap_right & BB_RANK_8, -7i32, list);
-    add_pawn_moves(cap_left  & !BB_RANK_8, -9i32, list);
+    add_pawn_moves(cap_left & !BB_RANK_8, -9i32, list);
     add_pawn_moves(cap_right & !BB_RANK_8, -7i32, list);
     if ep_sq != NO_SQUARE {
         let ep_bb = bb(ep_sq);
@@ -543,12 +595,12 @@ fn gen_pawn_captures_white(pawns: Bb, their: Bb, ep_sq: Square, occ: Bb, list: &
 }
 
 fn gen_pawn_captures_black(pawns: Bb, their: Bb, ep_sq: Square, occ: Bb, list: &mut MoveList) {
-    let cap_left  = (pawns >> 7) & !BB_FILE_A & their;
+    let cap_left = (pawns >> 7) & !BB_FILE_A & their;
     let cap_right = (pawns >> 9) & !BB_FILE_H & their;
     add_pawn_promos((pawns >> 8) & BB_RANK_1 & !occ, 8i32, list);
-    add_pawn_promos(cap_left  & BB_RANK_1, 7i32, list);
+    add_pawn_promos(cap_left & BB_RANK_1, 7i32, list);
     add_pawn_promos(cap_right & BB_RANK_1, 9i32, list);
-    add_pawn_moves(cap_left  & !BB_RANK_1, 7i32, list);
+    add_pawn_moves(cap_left & !BB_RANK_1, 7i32, list);
     add_pawn_moves(cap_right & !BB_RANK_1, 9i32, list);
     if ep_sq != NO_SQUARE {
         let ep_bb = bb(ep_sq);
@@ -629,7 +681,9 @@ pub fn gen_quiet_checks(board: &Board, atk: &AttackTables) -> MoveList {
     let occ = board.occ_all;
     let _our = board.occ[ui];
     let their_king_sq = board.king_sq[ti];
-    if their_king_sq == NO_SQUARE { return list; }
+    if their_king_sq == NO_SQUARE {
+        return list;
+    }
 
     // Knight checks: knight moves to a square that attacks the enemy king
     let king_atk = atk.knight[their_king_sq as usize];
@@ -674,7 +728,6 @@ pub fn gen_quiet_checks(board: &Board, atk: &AttackTables) -> MoveList {
     list
 }
 
-
 // ============================================================
 // Section 4b: Static Exchange Evaluation (SEE)
 // ============================================================
@@ -705,14 +758,22 @@ fn least_valuable_attacker(
     let pawn_attackers = if side == Color::White {
         // White pawns attack from below: to-7 (left) and to-9 (right)
         let mut mask = 0u64;
-        if to >= 9 && sq_file(to) > 0 { mask |= bb(to - 9); }
-        if to >= 7 && sq_file(to) < 7 { mask |= bb(to - 7); }
+        if to >= 9 && sq_file(to) > 0 {
+            mask |= bb(to - 9);
+        }
+        if to >= 7 && sq_file(to) < 7 {
+            mask |= bb(to - 7);
+        }
         mask
     } else {
         // Black pawns attack from above: to+7 (left) and to+9 (right)
         let mut mask = 0u64;
-        if to <= 56 && sq_file(to) > 0 { mask |= bb(to + 7); }
-        if to <= 54 && sq_file(to) < 7 { mask |= bb(to + 9); }
+        if to <= 56 && sq_file(to) > 0 {
+            mask |= bb(to + 7);
+        }
+        if to <= 54 && sq_file(to) < 7 {
+            mask |= bb(to + 9);
+        }
         mask
     };
     let pawns = pawn_attackers & board.pieces[ci][PieceType::Pawn as usize] & *occ;
@@ -775,7 +836,9 @@ pub fn see(board: &Board, atk: &AttackTables, m: Move) -> i32 {
     let to = move_to(m);
 
     let mover_piece = board.sq_piece[from as usize];
-    if mover_piece == PIECE_NONE { return 0; }
+    if mover_piece == PIECE_NONE {
+        return 0;
+    }
     let mover_pt = piece_type(mover_piece);
     let mover_color = piece_color(mover_piece);
 
@@ -804,7 +867,11 @@ pub fn see(board: &Board, atk: &AttackTables, m: Move) -> i32 {
     let mut occ = board.occ_all ^ bb(from);
     // For en passant, also remove the captured pawn
     if move_flags(m) == MF_EN_PASSANT {
-        let ep_cap_sq = if mover_color == Color::White { to - 8 } else { to + 8 };
+        let ep_cap_sq = if mover_color == Color::White {
+            to - 8
+        } else {
+            to + 8
+        };
         occ ^= bb(ep_cap_sq);
     }
 
@@ -817,7 +884,9 @@ pub fn see(board: &Board, atk: &AttackTables, m: Move) -> i32 {
 
     loop {
         depth += 1;
-        if depth >= 32 { break; }
+        if depth >= 32 {
+            break;
+        }
 
         // Negamax: the gain at this depth is the value of recapturing
         // minus whatever the opponent gained
@@ -831,7 +900,9 @@ pub fn see(board: &Board, atk: &AttackTables, m: Move) -> i32 {
 
         // Find least valuable attacker for this side
         let pt = least_valuable_attacker(board, atk, to, side, &mut occ);
-        if pt == PieceType::None { break; }
+        if pt == PieceType::None {
+            break;
+        }
 
         current_attacker_value = SEE_VALUES[pt as usize];
         side = side.flip();
@@ -853,13 +924,14 @@ pub fn see_ge(board: &Board, atk: &AttackTables, m: Move, threshold: i32) -> boo
     see(board, atk, m) >= threshold
 }
 
-
 // ============================================================
 // Section 5: Perft (for correctness verification)
 // ============================================================
 
 pub fn perft(board: &mut Board, atk: &AttackTables, z: &crate::board::Zobrist, depth: u32) -> u64 {
-    if depth == 0 { return 1; }
+    if depth == 0 {
+        return 1;
+    }
     let list = gen_moves(board, atk);
     let mut nodes = 0u64;
     for i in 0..list.count {

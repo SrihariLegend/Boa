@@ -5,12 +5,12 @@
 // Pattern: Restriction → Prophylaxis → Improvement → Near-zugzwang → Error → Conversion
 
 mod board;
+mod eval;
 mod movegen;
 mod search;
-mod eval;
-mod uci;
 mod tt;
 mod types;
+mod uci;
 
 fn main() {
     uci::run();
