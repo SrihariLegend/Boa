@@ -61,6 +61,9 @@ It depends on:
 - `tools/openings.epd`
 - `target/release/boa`
 
+Additional tool documentation, including direct cutechess usage and the player
+style probe, is in `tools/README.md`.
+
 ## Development
 
 Run the Rust checks:
@@ -82,3 +85,4 @@ npm run check
 - `games/`: archived reference games.
 - `tools/match_manager/`: terminal match workflow and saved match state.
 - `tools/openings.epd`: opening suite used by Match Manager.
+- `tools/player_style_probe.mjs`: reference-player style probe for restriction experiments.

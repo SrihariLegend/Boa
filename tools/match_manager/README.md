@@ -2,6 +2,9 @@
 
 Terminal UI for engine approval matches.
 
+See `../README.md` for the full tools overview, including direct cutechess usage
+and the player style probe.
+
 ```sh
 cd tools/match_manager
 npm install
