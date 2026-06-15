@@ -1,0 +1,68 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    name: Windows x86_64
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Rust
+        shell: pwsh
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustup component add rustfmt
+          rustup target add x86_64-pc-windows-msvc
+
+      - name: Check formatting
+        run: cargo fmt --check
+
+      - name: Run tests
+        run: cargo test --locked
+
+      - name: Build Windows release binary
+        run: cargo build --release --locked --target x86_64-pc-windows-msvc
+
+      - name: Package release assets
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $tag = "${{ github.ref_name }}"
+          $assetName = "boa-$tag-windows-x86_64"
+          $dist = "dist"
+          $packageDir = Join-Path $dist $assetName
+
+          New-Item -ItemType Directory -Force -Path $packageDir | Out-Null
+          Copy-Item "target/x86_64-pc-windows-msvc/release/boa.exe" (Join-Path $packageDir "boa.exe")
+          Copy-Item "README.md" (Join-Path $packageDir "README.md")
+
+          Copy-Item (Join-Path $packageDir "boa.exe") (Join-Path $dist "$assetName.exe")
+          Compress-Archive -Path (Join-Path $packageDir "*") -DestinationPath (Join-Path $dist "$assetName.zip") -Force
+
+          $exeHash = (Get-FileHash (Join-Path $dist "$assetName.exe") -Algorithm SHA256).Hash.ToLowerInvariant()
+          $zipHash = (Get-FileHash (Join-Path $dist "$assetName.zip") -Algorithm SHA256).Hash.ToLowerInvariant()
+          @(
+            "$exeHash  $assetName.exe"
+            "$zipHash  $assetName.zip"
+          ) | Set-Content -Path (Join-Path $dist "SHA256SUMS.txt") -Encoding ascii
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Boa ${{ github.ref_name }}
+          generate_release_notes: true
+          files: |
+            dist/boa-${{ github.ref_name }}-windows-x86_64.exe
+            dist/boa-${{ github.ref_name }}-windows-x86_64.zip
+            dist/SHA256SUMS.txt

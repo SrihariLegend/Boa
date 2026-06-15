@@ -79,6 +79,19 @@ cd tools/match_manager
 npm run check
 ```
 
+## Releases
+
+GitHub Actions publishes Windows releases automatically from version tags.
+
+```sh
+git tag v0.1.1
+git push origin v0.1.1
+```
+
+The release workflow builds `x86_64-pc-windows-msvc`, runs `cargo test`, and
+uploads a raw `boa-<tag>-windows-x86_64.exe`, a zip archive, and
+`SHA256SUMS.txt`.
+
 ## Repository Layout
 
 - `src/`: engine source.

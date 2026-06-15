@@ -19,6 +19,24 @@ Generated match state and build output should stay local. Do not commit
 `target/`, `tools/match_manager/dist/`, `tools/match_manager/engines/`, or
 `tools/match_manager/matches/`.
 
+## Release Workflow
+
+Path: `.github/workflows/release.yml`
+
+Windows releases are published automatically when a version tag is pushed:
+
+```sh
+git tag v0.1.1
+git push origin v0.1.1
+```
+
+The workflow runs on `windows-latest`, installs the stable Rust toolchain,
+runs `cargo test --locked`, builds `x86_64-pc-windows-msvc`, and uploads:
+
+- `boa-<tag>-windows-x86_64.exe`
+- `boa-<tag>-windows-x86_64.zip`
+- `SHA256SUMS.txt`
+
 ## Match Manager
 
 Path: `tools/match_manager/`
