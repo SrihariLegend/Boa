@@ -98,6 +98,14 @@ const RESTRICTION_EXTENSION_MOBILITY_DROP: u32 = 4;
 /// trim mobility from a still-free position.
 const RESTRICTION_EXTENSION_MAX_MOBILITY: u32 = 18;
 
+/// Move ordering: quiet moves that reduce opponent mobility should be searched
+/// earlier even when the drop is not large enough to earn an extension.
+const RESTRICTION_ORDER_DROP_BONUS: i32 = 120;
+const RESTRICTION_ORDER_LOW_MOBILITY_BONUS: i32 = 12;
+const RESTRICTION_ORDER_SQUEEZE_BONUS: i32 = 160;
+const RESTRICTION_ORDER_COUNTERPLAY_PENALTY: i32 = 40;
+const RESTRICTION_ORDER_MIN_DEPTH: i32 = 3;
+
 /// Late Move Pruning: max moves to try at each depth before pruning quiet moves.
 /// At depth d, we try at most LMP_BASE + LMP_MULTIPLIER * d * d quiet moves.
 const LMP_BASE: usize = 3;
@@ -747,13 +755,14 @@ fn handle_beta_cutoff(
 
 /// Score a single move for move ordering.
 fn score_single_move(
-    board: &Board,
+    board: &mut Board,
     ctx: &SearchContext,
     m: Move,
     tt_move: Move,
     ply: usize,
     counter: Move,
     us: usize,
+    opponent_mobility_before: Option<u32>,
 ) -> i32 {
     if m == tt_move {
         return 2_000_000;
@@ -792,7 +801,7 @@ fn score_single_move(
         s += 750_000;
     }
     s += ctx.history[us][move_from(m) as usize][move_to(m) as usize];
-    s += restriction_move_score(board, ctx.atk, m);
+    s += restriction_move_score(board, ctx, m, opponent_mobility_before);
     s
 }
 
@@ -929,7 +938,7 @@ fn alpha_beta(
 
     // Generate and order moves
     let mut list = gen_moves(board, ctx.atk);
-    score_moves(board, ctx, &mut list, tt_move, ply);
+    score_moves(board, ctx, &mut list, tt_move, ply, depth);
 
     let mut best_move = MOVE_NONE;
     let mut best_score = -SCORE_INF;
@@ -1128,7 +1137,7 @@ fn quiescence(
         }
 
         let mut list = gen_moves(board, ctx.atk);
-        score_moves(board, ctx, &mut list, MOVE_NONE, ply);
+        score_moves(board, ctx, &mut list, MOVE_NONE, ply, 0);
 
         let mut legal_moves = 0;
         for i in 0..list.count {
@@ -1217,8 +1226,20 @@ fn quiescence(
     alpha
 }
 
-fn score_moves(board: &Board, ctx: &SearchContext, list: &mut MoveList, tt_move: Move, ply: usize) {
+fn score_moves(
+    board: &mut Board,
+    ctx: &SearchContext,
+    list: &mut MoveList,
+    tt_move: Move,
+    ply: usize,
+    depth: i32,
+) {
     let us = board.side as usize;
+    let opponent_mobility_before = if depth >= RESTRICTION_ORDER_MIN_DEPTH {
+        Some(side_mobility_for_search(board, ctx.atk, board.side.flip()))
+    } else {
+        None
+    };
     let prev_move = if ply > 0 && ply < 128 {
         ctx.stack[ply - 1].current_move
     } else {
@@ -1231,7 +1252,16 @@ fn score_moves(board: &Board, ctx: &SearchContext, list: &mut MoveList, tt_move:
     };
 
     for i in 0..list.count {
-        list.scores[i] = score_single_move(board, ctx, list.moves[i], tt_move, ply, counter, us);
+        list.scores[i] = score_single_move(
+            board,
+            ctx,
+            list.moves[i],
+            tt_move,
+            ply,
+            counter,
+            us,
+            opponent_mobility_before,
+        );
     }
 }
 
@@ -1258,8 +1288,42 @@ fn score_captures(board: &Board, ctx: &SearchContext, list: &mut MoveList) {
     }
 }
 
-/// Boa restriction bonus for move ordering
-fn restriction_move_score(board: &Board, _atk: &AttackTables, m: Move) -> i32 {
+/// Boa restriction bonus for move ordering.
+fn restriction_move_score(
+    board: &mut Board,
+    ctx: &SearchContext,
+    m: Move,
+    opponent_mobility_before: Option<u32>,
+) -> i32 {
+    let mut score = restriction_shape_score(board, m);
+    let Some(opponent_mobility_before) = opponent_mobility_before else {
+        return score;
+    };
+    let flags = move_flags(m);
+    if flags == MF_PROMOTION
+        || flags == MF_EN_PASSANT
+        || board.sq_piece[move_to(m) as usize] != PIECE_NONE
+    {
+        return score;
+    }
+
+    let undo = board.make_move(m, ctx.z);
+    let legal = !board.is_in_check(board.side.flip());
+    let opponent_mobility_after = if legal {
+        Some(side_mobility_for_search(board, ctx.atk, board.side))
+    } else {
+        None
+    };
+    board.unmake_move(m, &undo, ctx.z);
+
+    if let Some(after) = opponent_mobility_after {
+        score += restriction_mobility_delta_score(opponent_mobility_before, after);
+    }
+
+    score
+}
+
+fn restriction_shape_score(board: &Board, m: Move) -> i32 {
     let to = move_to(m);
     let mover = board.sq_piece[move_from(m) as usize];
     if mover == PIECE_NONE {
@@ -1282,6 +1346,25 @@ fn restriction_move_score(board: &Board, _atk: &AttackTables, m: Move) -> i32 {
     };
 
     centrality + forward_bonus + piece_bonus
+}
+
+fn restriction_mobility_delta_score(before: u32, after: u32) -> i32 {
+    if after < before {
+        let drop = before - after;
+        let mut score = drop as i32 * RESTRICTION_ORDER_DROP_BONUS;
+        if after <= RESTRICTION_EXTENSION_MAX_MOBILITY {
+            score += (RESTRICTION_EXTENSION_MAX_MOBILITY - after) as i32
+                * RESTRICTION_ORDER_LOW_MOBILITY_BONUS;
+        }
+        if after <= SQUEEZE_MOBILITY_THRESHOLD {
+            score += RESTRICTION_ORDER_SQUEEZE_BONUS;
+        }
+        score
+    } else if after > before {
+        -((after - before).min(6) as i32 * RESTRICTION_ORDER_COUNTERPLAY_PENALTY)
+    } else {
+        0
+    }
 }
 
 fn centrality_score(sq: Square) -> i32 {
@@ -1574,6 +1657,20 @@ mod tests {
         assert!(!should_extend_restriction(22, 19, false));
         assert!(!should_extend_restriction(40, 32, false));
         assert!(!should_extend_restriction(12, 13, true));
+    }
+
+    #[test]
+    fn restriction_ordering_rewards_mobility_drops() {
+        assert!(restriction_mobility_delta_score(24, 20) > 0);
+        assert!(
+            restriction_mobility_delta_score(24, 12) > restriction_mobility_delta_score(24, 20)
+        );
+    }
+
+    #[test]
+    fn restriction_ordering_penalizes_releasing_counterplay() {
+        assert_eq!(restriction_mobility_delta_score(16, 16), 0);
+        assert!(restriction_mobility_delta_score(16, 20) < 0);
     }
 
     #[test]
