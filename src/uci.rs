@@ -92,16 +92,17 @@ fn collect_fen<'a>(tokens: &mut impl Iterator<Item = &'a str>) -> String {
     fen_parts.join(" ")
 }
 
-fn handle_go<'a>(
-    tokens: impl Iterator<Item = &'a str>,
-    board: &mut Board,
-    position_history: &[u64],
-    atk: &AttackTables,
-    z: &Zobrist,
-    tt: &mut TranspositionTable,
+struct GoContext<'a> {
+    board: &'a mut Board,
+    position_history: &'a [u64],
+    atk: &'a AttackTables,
+    z: &'a Zobrist,
+    tt: &'a mut TranspositionTable,
     contempt: i32,
-    stop_flag: &std::sync::atomic::AtomicBool,
-) {
+    stop_flag: &'a std::sync::atomic::AtomicBool,
+}
+
+fn handle_go<'a>(tokens: impl Iterator<Item = &'a str>, go: GoContext<'_>) {
     let mut limits = Limits::default();
     let mut tok_iter = tokens.peekable();
     while let Some(tok) = tok_iter.next() {
@@ -135,15 +136,24 @@ fn handle_go<'a>(
             }
             "perft" => {
                 let d: u32 = tok_iter.next().and_then(|t| t.parse().ok()).unwrap_or(1);
-                run_perft(board, atk, z, d);
+                run_perft(go.board, go.atk, go.z, d);
                 return;
             }
             _ => {}
         }
     }
-    let history_for_search = position_history[..position_history.len().saturating_sub(1)].to_vec();
-    let mut ctx = SearchContext::new(atk, z, tt, limits, history_for_search, contempt, stop_flag);
-    let result = search(board, &mut ctx);
+    let history_for_search =
+        go.position_history[..go.position_history.len().saturating_sub(1)].to_vec();
+    let mut ctx = SearchContext::new(
+        go.atk,
+        go.z,
+        go.tt,
+        limits,
+        history_for_search,
+        go.contempt,
+        go.stop_flag,
+    );
+    let result = search(go.board, &mut ctx);
     println!("bestmove {}", move_name(result.best_move));
     let _ = io::stdout().flush();
 }
@@ -220,13 +230,15 @@ pub fn run() {
                 stop_flag.store(false, std::sync::atomic::Ordering::Relaxed);
                 handle_go(
                     tokens,
-                    &mut board,
-                    &position_history,
-                    &atk,
-                    &z,
-                    &mut tt,
-                    contempt,
-                    &stop_flag,
+                    GoContext {
+                        board: &mut board,
+                        position_history: &position_history,
+                        atk: &atk,
+                        z: &z,
+                        tt: &mut tt,
+                        contempt,
+                        stop_flag: &stop_flag,
+                    },
                 );
             }
             Some("stop") => {

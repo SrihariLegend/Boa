@@ -13,8 +13,6 @@
 //   5. Contempt: slight draw avoidance to prefer grinding
 // ============================================================
 
-#![allow(dead_code)]
-
 use crate::board::{Board, Zobrist};
 use crate::eval::{evaluate, EvalContext};
 use crate::movegen::{gen_captures, gen_moves, AttackTables, MoveList};
@@ -106,15 +104,6 @@ const RESTRICTION_ORDER_SQUEEZE_BONUS: i32 = 160;
 const RESTRICTION_ORDER_COUNTERPLAY_PENALTY: i32 = 40;
 const RESTRICTION_ORDER_MIN_DEPTH: i32 = 3;
 
-/// Late Move Pruning: max moves to try at each depth before pruning quiet moves.
-/// At depth d, we try at most LMP_BASE + LMP_MULTIPLIER * d * d quiet moves.
-const LMP_BASE: usize = 3;
-const LMP_MULTIPLIER: usize = 1;
-
-/// Futility pruning margin per depth (centipawns).
-/// At depth d, prune quiet moves if static_eval + d * margin < alpha.
-const FUTILITY_MARGIN_PER_DEPTH: i32 = 120;
-
 /// Internal Iterative Deepening: minimum depth to apply IID.
 /// When no TT move is available, do a reduced search to find a candidate.
 /// Standard: 4-6 (CPW). Applied at PV nodes and high-depth non-PV nodes.
@@ -123,7 +112,6 @@ const IID_MIN_DEPTH: i32 = 5;
 /// IID: depth reduction for the internal search.
 /// Common formula: depth - 2 or depth - depth/4 - 1.
 const IID_REDUCTION: i32 = 2;
-const FUTILITY_MAX_DEPTH: i32 = 3;
 
 /// Capture history: scale divisor when adding to MVV-LVA score.
 /// Keeps learned capture ordering from overwhelming the static MVV-LVA signal.
@@ -136,6 +124,7 @@ const QS_CHECK_EVASION_MAX_PLY: usize = 2;
 // ---- Search statistics (diagnostic) ----
 
 #[derive(Default, Clone)]
+#[allow(dead_code)]
 pub struct SearchStats {
     pub nodes: u64,
     pub qnodes: u64,
@@ -168,6 +157,7 @@ pub struct SearchStats {
 }
 
 impl SearchStats {
+    #[allow(dead_code)]
     pub fn report(&self) -> String {
         let total = self.nodes + self.qnodes;
         let q_pct = if total > 0 {
@@ -290,9 +280,41 @@ impl Default for Limits {
 pub struct SearchResult {
     pub best_move: Move,
     pub score: Score,
+    #[allow(dead_code)]
     pub depth: u32,
     pub nodes: u64,
+    #[allow(dead_code)]
     pub pv: Vec<Move>,
+}
+
+#[derive(Clone, Copy)]
+struct SearchNode {
+    alpha: Score,
+    beta: Score,
+    depth: i32,
+    ply: usize,
+    is_pv: bool,
+}
+
+#[derive(Clone, Copy)]
+struct MoveScoreContext {
+    tt_move: Move,
+    ply: usize,
+    counter: Move,
+    us: usize,
+    opponent_mobility_before: Option<u32>,
+}
+
+#[derive(Clone, Copy)]
+struct LmrInput {
+    moves_searched: usize,
+    depth: i32,
+    is_capture: bool,
+    is_promo: bool,
+    gives_check: bool,
+    in_check: bool,
+    squeeze_mode: bool,
+    improving: bool,
 }
 
 // ---- Search context ----
@@ -621,7 +643,18 @@ fn aspiration_search(
     pv: &mut Vec<Move>,
 ) -> Score {
     if depth <= ASPIRATION_MIN_DEPTH {
-        return alpha_beta(board, ctx, -SCORE_INF, SCORE_INF, depth as i32, 0, true, pv);
+        return alpha_beta(
+            board,
+            ctx,
+            SearchNode {
+                alpha: -SCORE_INF,
+                beta: SCORE_INF,
+                depth: depth as i32,
+                ply: 0,
+                is_pv: true,
+            },
+            pv,
+        );
     }
     let delta = ASPIRATION_DELTA;
     let mut alpha = (prev_score - delta).max(-SCORE_INF);
@@ -629,7 +662,18 @@ fn aspiration_search(
     let mut window_expand = 0;
 
     loop {
-        let score = alpha_beta(board, ctx, alpha, beta, depth as i32, 0, true, pv);
+        let score = alpha_beta(
+            board,
+            ctx,
+            SearchNode {
+                alpha,
+                beta,
+                depth: depth as i32,
+                ply: 0,
+                is_pv: true,
+            },
+            pv,
+        );
         if ctx.stopped {
             return score;
         }
@@ -647,7 +691,18 @@ fn aspiration_search(
             break;
         }
     }
-    alpha_beta(board, ctx, -SCORE_INF, SCORE_INF, depth as i32, 0, true, pv)
+    alpha_beta(
+        board,
+        ctx,
+        SearchNode {
+            alpha: -SCORE_INF,
+            beta: SCORE_INF,
+            depth: depth as i32,
+            ply: 0,
+            is_pv: true,
+        },
+        pv,
+    )
 }
 
 /// Try TT cutoff for non-PV nodes. Returns Some(score) if we can cut off.
@@ -713,11 +768,13 @@ fn try_null_move(
     let null_score = -alpha_beta(
         board,
         ctx,
-        -beta,
-        -beta + 1,
-        depth - r,
-        ply + 1,
-        false,
+        SearchNode {
+            alpha: -beta,
+            beta: -beta + 1,
+            depth: depth - r,
+            ply: ply + 1,
+            is_pv: false,
+        },
         &mut null_pv,
     );
     board.unmake_null_move(&undo);
@@ -758,13 +815,9 @@ fn score_single_move(
     board: &mut Board,
     ctx: &SearchContext,
     m: Move,
-    tt_move: Move,
-    ply: usize,
-    counter: Move,
-    us: usize,
-    opponent_mobility_before: Option<u32>,
+    scoring: MoveScoreContext,
 ) -> i32 {
-    if m == tt_move {
+    if m == scoring.tt_move {
         return 2_000_000;
     }
     if move_flags(m) == MF_PROMOTION {
@@ -787,21 +840,21 @@ fn score_single_move(
             0
         };
         let to = move_to(m) as usize;
-        let ch = ctx.cap_history[us][mover_pt][to][cap_pt] / CAP_HISTORY_DIVISOR;
+        let ch = ctx.cap_history[scoring.us][mover_pt][to][cap_pt] / CAP_HISTORY_DIVISOR;
         return 1_000_000 + cap_val * 10 - mov_val + ch;
     }
 
     // Quiet move scoring
     let mut s = 0i32;
-    if ply < 128 && m == ctx.killers[ply][0] {
+    if scoring.ply < 128 && m == ctx.killers[scoring.ply][0] {
         s += 900_000;
-    } else if ply < 128 && m == ctx.killers[ply][1] {
+    } else if scoring.ply < 128 && m == ctx.killers[scoring.ply][1] {
         s += 800_000;
-    } else if m == counter {
+    } else if m == scoring.counter {
         s += 750_000;
     }
-    s += ctx.history[us][move_from(m) as usize][move_to(m) as usize];
-    s += restriction_move_score(board, ctx, m, opponent_mobility_before);
+    s += ctx.history[scoring.us][move_from(m) as usize][move_to(m) as usize];
+    s += restriction_move_score(board, ctx, m, scoring.opponent_mobility_before);
     s
 }
 
@@ -812,13 +865,17 @@ fn score_single_move(
 fn alpha_beta(
     board: &mut Board,
     ctx: &mut SearchContext,
-    alpha: Score,
-    beta: Score,
-    depth: i32,
-    ply: usize,
-    is_pv: bool,
+    node: SearchNode,
     pv: &mut Vec<Move>,
 ) -> Score {
+    let SearchNode {
+        alpha,
+        beta,
+        depth,
+        ply,
+        is_pv,
+    } = node;
+
     if ctx.should_stop() {
         return 0;
     }
@@ -890,7 +947,18 @@ fn alpha_beta(
         let mut iid_pv = Vec::new();
         // Temporarily remove our hash to prevent false repetition detection
         ctx.history_hashes.pop();
-        alpha_beta(board, ctx, alpha, beta, iid_depth, ply, is_pv, &mut iid_pv);
+        alpha_beta(
+            board,
+            ctx,
+            SearchNode {
+                alpha,
+                beta,
+                depth: iid_depth,
+                ply,
+                is_pv,
+            },
+            &mut iid_pv,
+        );
         ctx.history_hashes.push(board.hash);
         // Re-probe TT — the reduced search will have stored a best move
         if let Some(entry) = ctx.tt.probe(board.hash) {
@@ -904,7 +972,7 @@ fn alpha_beta(
     if ply < 128 {
         ctx.stack[ply].static_eval = static_eval;
     }
-    let improving = ply >= 2 && ply < 128 && static_eval > ctx.stack[ply - 2].static_eval;
+    let improving = (2..128).contains(&ply) && static_eval > ctx.stack[ply - 2].static_eval;
 
     // ---- Positional mode detection (the Boa adaptation) ----
     let squeeze_mode = !in_check && is_squeeze_position(board, ctx.atk);
@@ -994,14 +1062,16 @@ fn alpha_beta(
 
         // ---- Late move reductions (LMR) ----
         let reduction = compute_lmr_reduction(
-            moves_searched,
-            depth,
-            is_capture,
-            is_promo,
-            gives_check,
-            in_check,
-            squeeze_mode,
-            improving,
+            LmrInput {
+                moves_searched,
+                depth,
+                is_capture,
+                is_promo,
+                gives_check,
+                in_check,
+                squeeze_mode,
+                improving,
+            },
             ctx,
         );
         if reduction > 0 {
@@ -1023,22 +1093,26 @@ fn alpha_beta(
             -alpha_beta(
                 board,
                 ctx,
-                -beta,
-                -alpha,
-                depth - 1 + squeeze_ext,
-                ply + 1,
-                is_pv,
+                SearchNode {
+                    alpha: -beta,
+                    beta: -alpha,
+                    depth: depth - 1 + squeeze_ext,
+                    ply: ply + 1,
+                    is_pv,
+                },
                 &mut child_pv,
             )
         } else {
             let mut s = -alpha_beta(
                 board,
                 ctx,
-                -alpha - 1,
-                -alpha,
-                new_depth,
-                ply + 1,
-                false,
+                SearchNode {
+                    alpha: -alpha - 1,
+                    beta: -alpha,
+                    depth: new_depth,
+                    ply: ply + 1,
+                    is_pv: false,
+                },
                 &mut child_pv,
             );
             if !ctx.stopped && s > alpha && (s < beta || reduction > 0) {
@@ -1049,11 +1123,13 @@ fn alpha_beta(
                 s = -alpha_beta(
                     board,
                     ctx,
-                    -beta,
-                    -alpha,
-                    depth - 1 + squeeze_ext,
-                    ply + 1,
-                    is_pv,
+                    SearchNode {
+                        alpha: -beta,
+                        beta: -alpha,
+                        depth: depth - 1 + squeeze_ext,
+                        ply: ply + 1,
+                        is_pv,
+                    },
                     &mut child_pv,
                 );
             }
@@ -1256,11 +1332,13 @@ fn score_moves(
             board,
             ctx,
             list.moves[i],
-            tt_move,
-            ply,
-            counter,
-            us,
-            opponent_mobility_before,
+            MoveScoreContext {
+                tt_move,
+                ply,
+                counter,
+                us,
+                opponent_mobility_before,
+            },
         );
     }
 }
@@ -1509,34 +1587,24 @@ fn update_cap_history(ctx: &mut SearchContext, color: Color, m: Move, board: &Bo
 }
 
 /// Compute LMR reduction for a move. Returns 0 if LMR doesn't apply.
-fn compute_lmr_reduction(
-    moves_searched: usize,
-    depth: i32,
-    is_capture: bool,
-    is_promo: bool,
-    gives_check: bool,
-    in_check: bool,
-    squeeze_mode: bool,
-    improving: bool,
-    ctx: &mut SearchContext,
-) -> i32 {
-    if moves_searched < LMR_FULL_DEPTH_MOVES
-        || depth < LMR_MIN_DEPTH
-        || is_capture
-        || is_promo
-        || gives_check
-        || in_check
+fn compute_lmr_reduction(input: LmrInput, ctx: &mut SearchContext) -> i32 {
+    if input.moves_searched < LMR_FULL_DEPTH_MOVES
+        || input.depth < LMR_MIN_DEPTH
+        || input.is_capture
+        || input.is_promo
+        || input.gives_check
+        || input.in_check
     {
         return 0;
     }
     ctx.stats.lmr_attempts += 1;
-    let mut base_r = lmr_reduction(depth, moves_searched);
+    let mut base_r = lmr_reduction(input.depth, input.moves_searched);
     // Boa adaptation: reduce less in squeeze (positional grinding)
-    if squeeze_mode {
+    if input.squeeze_mode {
         base_r = (base_r - 1).max(0);
     }
     // When position is not improving, search less deeply (SF-style)
-    if !improving {
+    if !input.improving {
         base_r += 1;
     }
     base_r
@@ -1640,7 +1708,16 @@ mod tests {
 
         let mut pv = Vec::new();
         let score = alpha_beta(
-            &mut board, &mut ctx, -SCORE_INF, SCORE_INF, 0, 0, true, &mut pv,
+            &mut board,
+            &mut ctx,
+            SearchNode {
+                alpha: -SCORE_INF,
+                beta: SCORE_INF,
+                depth: 0,
+                ply: 0,
+                is_pv: true,
+            },
+            &mut pv,
         );
 
         assert_eq!(score, -SCORE_MATE);

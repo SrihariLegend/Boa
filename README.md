@@ -96,6 +96,7 @@ uploads a raw `boa-<tag>-windows-x86_64.exe`, a zip archive, and
 
 - `src/`: engine source.
 - `games/`: archived reference games.
+- `EXPERIMENTS.md`: scratchpad of tried engine ideas, results, and rejected code paths.
 - `tools/match_manager/`: terminal match workflow and saved match state.
 - `tools/openings.epd`: opening suite used by Match Manager.
 - `tools/player_style_probe.mjs`: reference-player style probe for restriction experiments.

@@ -23,8 +23,6 @@
 //  14. Passed pawn advancement safety (clear path + king support)
 // ============================================================
 
-#![allow(dead_code)]
-
 use crate::board::Board;
 use crate::movegen::{pawn_attacks_black, pawn_attacks_white, AttackTables};
 use crate::types::*;
@@ -119,22 +117,10 @@ const SQUEEZE_SEVERE_PER_MOVE: i32 = 4;
 const SQUEEZE_MODERATE_BASE: i32 = 10; // 6-15 moves: 30 + (15-mob)*3
 const SQUEEZE_MODERATE_PER_MOVE: i32 = 1;
 
-/// Space evaluation: count squares controlled behind our pawn chain.
-/// Boa was famous for gradually gaining space advantage.
-/// Space is more valuable in the middlegame. [NEEDS TUNING]
-const SPACE_WEIGHT_MG: i32 = 2;
-const SPACE_WEIGHT_EG: i32 = 0;
-/// Only count space in the center files (C-F) where it matters most.
-const SPACE_CENTER_FILES: Bb = 0x3C3C3C3C3C3C3C3C; // files C through F
-
 /// Trade-down bonus: when ahead in material, reward exchanging pieces.
 /// Boa would grind down into won endgames by simplifying.
 /// Bonus per centipawn of material advantage, scaled by pieces traded. [NEEDS TUNING]
 const TRADE_DOWN_BONUS_PER_100CP: i32 = 15;
-
-/// Bad bishop: penalty per own pawn on same color squares as bishop.
-/// A bishop blocked by its own pawns is a Boa-style weakness to exploit. [NEEDS TUNING]
-const BAD_BISHOP_PENALTY_PER_PAWN: (i32, i32) = (-3, -5);
 
 /// Rook behind passed pawn bonus. Rooks belong behind passers (Tarrasch rule).
 /// Applies to both own and enemy passed pawns. [NEEDS TUNING]
@@ -168,20 +154,6 @@ const WEAK_SQUARE_CONTROL_BONUS: (i32, i32) = (1, 1);
 /// Weak square occupation bonus: knight on a hole is especially strong.
 /// SF: outpost bonuses are 30-50. This is specifically for holes. [NEEDS TUNING]
 const WEAK_SQUARE_KNIGHT_BONUS: (i32, i32) = (20, 9);
-
-/// Good knight vs bad bishop: bonus when we have a knight and they have a
-/// bishop in a closed/semi-closed position. Boa engineered these imbalances.
-/// Triggered when center has 4+ pawns (closed). [NEEDS TUNING]
-const KNIGHT_VS_BISHOP_CLOSED_BONUS: (i32, i32) = (20, 25);
-
-/// Closed center threshold: minimum pawns on center 4 files to consider position closed.
-/// 4 pawns on d/e files means both sides have pawns blocking each other.
-const CLOSED_CENTER_PAWN_THRESHOLD: u32 = 4;
-
-/// Prophylaxis: penalty for each available enemy pawn break.
-/// A pawn break is an enemy pawn that can advance to challenge our pawn chain.
-/// Boa's #1 trait: prevent opponent's plans before they happen. [NEEDS TUNING]
-const ENEMY_PAWN_BREAK_PENALTY: (i32, i32) = (-4, -2);
 
 /// Piece coordination: bonus when our pieces mutually defend each other.
 /// Boa's pieces worked as a harmonious unit. [NEEDS TUNING]
@@ -218,11 +190,6 @@ const EXTENDED_CENTER_ATTACK_BONUS: (i32, i32) = (0, 5);
 /// Per pawn on rank 5/6/7 (relative to color).
 const ADVANCED_PAWN_BONUS_MG: [i32; 3] = [7, 15, 30]; // rank 5, 6, 7
 const ADVANCED_PAWN_BONUS_EG: [i32; 3] = [2, 8, 35];
-
-/// Min piece mobility: penalty when our least mobile piece has very few moves.
-/// Effect size +0.171 — having a trapped/restricted piece is bad. [NEEDS TUNING]
-const MIN_MOBILITY_PENALTY_THRESHOLD: u32 = 2;
-const MIN_MOBILITY_PENALTY: (i32, i32) = (-12, -8);
 
 // ============================================================
 // Section 1: Piece-square tables
@@ -435,21 +402,13 @@ pub fn evaluate(board: &Board, ctx: &EvalContext) -> Score {
     mg_score += freedom;
     eg_score += freedom;
 
-    // space_evaluation: disabled (-53 Elo in ablation)
-
     let (trade_mg, trade_eg) = trade_down_bonus(board);
     mg_score += trade_mg;
     eg_score += trade_eg;
 
-    // bad_bishop_eval: disabled (-89 Elo in ablation, consistently hurts)
-
     let (ws_mg, ws_eg) = weak_square_eval(board, ctx);
     mg_score += ws_mg;
     eg_score += ws_eg;
-
-    // knight_vs_bishop_eval: disabled (-53 Elo in ablation)
-
-    // prophylaxis_eval: disabled (±0 Elo, data confirms near-zero effect)
 
     let (pc_mg, pc_eg) = piece_coordination_eval(board, ctx);
     mg_score += pc_mg;
@@ -458,8 +417,6 @@ pub fn evaluate(board: &Board, ctx: &EvalContext) -> Score {
     let (ap_mg, ap_eg) = advanced_pawn_eval(board);
     mg_score += ap_mg;
     eg_score += ap_eg;
-
-    // min_piece_mobility_eval: disabled (-127 Elo in ablation)
 
     let score = (mg_score * phase + eg_score * (256 - phase)) / 256;
 
@@ -604,9 +561,9 @@ fn outpost_bonus(sq: Square, color: Color, their_pawn_attacks: Bb, board: &Board
     }
     let r = sq_rank(sq);
     let in_outpost_zone = if color == Color::White {
-        r >= 3 && r <= 5
+        (3..=5).contains(&r)
     } else {
-        r >= 2 && r <= 4
+        (2..=4).contains(&r)
     };
     if !in_outpost_zone {
         return 0;
@@ -716,45 +673,7 @@ fn freedom_metric(board: &Board, ctx: &EvalContext) -> i32 {
 }
 
 // ============================================================
-// Section 5b: Space evaluation (Boa signature)
-// ============================================================
-//
-// Space = squares behind your pawn chain that you control.
-// Boa would gradually push pawns forward, claiming territory,
-// then use the space advantage to maneuver pieces optimally.
-
-fn space_evaluation(board: &Board) -> (i32, i32) {
-    let mut mg = 0i32;
-    let mut eg = 0i32;
-
-    for &color in &[Color::White, Color::Black] {
-        let sign = if color == Color::White { 1 } else { -1 };
-        let ci = color as usize;
-        let our_pawns = board.pieces[ci][PieceType::Pawn as usize];
-        let their_pawns = board.pieces[color.flip() as usize][PieceType::Pawn as usize];
-
-        // Space behind our pawns: squares on our side of the pawn chain
-        // that are not occupied by enemy pawns and are in center files
-        let safe_zone = if color == Color::White {
-            // White space = ranks 2-4 in center files, behind our most advanced pawn
-            let behind = our_pawns | (our_pawns >> 8) | (our_pawns >> 16) | (our_pawns >> 24);
-            behind & SPACE_CENTER_FILES & (BB_RANK_2 | BB_RANK_3 | BB_RANK_4)
-        } else {
-            let behind = our_pawns | (our_pawns << 8) | (our_pawns << 16) | (our_pawns << 24);
-            behind & SPACE_CENTER_FILES & (BB_RANK_5 | BB_RANK_6 | BB_RANK_7)
-        };
-
-        // Count safe squares not blocked by enemy pawns
-        let space_count = (safe_zone & !their_pawns).count_ones() as i32;
-        mg += sign * space_count * SPACE_WEIGHT_MG;
-        eg += sign * space_count * SPACE_WEIGHT_EG;
-    }
-
-    (mg, eg)
-}
-
-// ============================================================
-// Section 5c: Trade-down bonus (Boa endgame technique)
+// Section 5b: Trade-down bonus (Boa endgame technique)
 // ============================================================
 //
 // When ahead in material, it's advantageous to trade pieces (not pawns).
@@ -779,45 +698,6 @@ fn trade_down_bonus(board: &Board) -> (i32, i32) {
 
     // Primarily an endgame bonus
     (trade_bonus / 4, trade_bonus)
-}
-
-// ============================================================
-// Section 5d: Bad bishop evaluation
-// ============================================================
-//
-// A bishop is "bad" when many of its own pawns are on the same
-// color squares, blocking its diagonals. Boa excelled at
-// exploiting bad bishops in his opponents' positions.
-
-fn bad_bishop_eval(board: &Board) -> (i32, i32) {
-    let mut mg = 0i32;
-    let mut eg = 0i32;
-
-    for &color in &[Color::White, Color::Black] {
-        let sign = if color == Color::White { 1 } else { -1 };
-        let ci = color as usize;
-        let our_pawns = board.pieces[ci][PieceType::Pawn as usize];
-        let mut bishops = board.pieces[ci][PieceType::Bishop as usize];
-
-        while bishops != 0 {
-            let sq = bb_pop_lsb(&mut bishops);
-            let bishop_color_mask = if bb(sq) & BB_LIGHT_SQUARES != 0 {
-                BB_LIGHT_SQUARES
-            } else {
-                BB_DARK_SQUARES
-            };
-            // Count own pawns on same color squares as this bishop
-            let blocking_pawns = (our_pawns & bishop_color_mask).count_ones() as i32;
-            // Penalty scales with number of blocking pawns (3+ is bad)
-            if blocking_pawns >= 3 {
-                let excess = blocking_pawns - 2; // penalty for each pawn beyond 2
-                mg += sign * excess * BAD_BISHOP_PENALTY_PER_PAWN.0;
-                eg += sign * excess * BAD_BISHOP_PENALTY_PER_PAWN.1;
-            }
-        }
-    }
-
-    (mg, eg)
 }
 
 /// Build a bitboard mask of ranks ahead of `rank` for the given color, intersected with `file_mask`.
@@ -850,10 +730,7 @@ fn ranks_behind_inclusive(color: Color, rank: u8, file_mask: Bb) -> Bb {
     mask & file_mask
 }
 
-/// Evaluate a single passed pawn's bonuses (path clear, king proximity, connected, rook behind).
-fn passed_pawn_bonuses(
-    board: &Board,
-    color: Color,
+struct PassedPawnContext {
     sq: Square,
     rank: u8,
     file: u8,
@@ -862,19 +739,22 @@ fn passed_pawn_bonuses(
     our_pawns: Bb,
     their_pawns: Bb,
     promo_dist: u8,
-) -> (i32, i32) {
+}
+
+/// Evaluate a single passed pawn's bonuses (path clear, king proximity, connected, rook behind).
+fn passed_pawn_bonuses(board: &Board, color: Color, passed: PassedPawnContext) -> (i32, i32) {
     let mut mg = 0i32;
     let mut eg = 0i32;
     let ci = color as usize;
     let ti = color.flip() as usize;
     let sign = if color == Color::White { 1 } else { -1 };
-    let adv = (7 - promo_dist) as usize;
+    let adv = (7 - passed.promo_dist) as usize;
 
     mg += sign * PASSED_PAWN_BONUS_MG[adv.min(7)];
     eg += sign * PASSED_PAWN_BONUS_EG[adv.min(7)];
 
     // Path clear bonus
-    let path_mask = ranks_ahead(color, rank, file_bb);
+    let path_mask = ranks_ahead(color, passed.rank, passed.file_bb);
     if board.occ_all & path_mask == 0 {
         mg += sign * PASSER_PATH_CLEAR_BONUS.0;
         eg += sign * PASSER_PATH_CLEAR_BONUS.1;
@@ -884,20 +764,24 @@ fn passed_pawn_bonuses(
     let our_king = board.king_sq[ci];
     let their_king = board.king_sq[ti];
     if our_king != NO_SQUARE && their_king != NO_SQUARE {
-        let our_dist = chebyshev_distance(our_king, sq);
-        let their_dist = chebyshev_distance(their_king, sq);
+        let our_dist = chebyshev_distance(our_king, passed.sq);
+        let their_dist = chebyshev_distance(their_king, passed.sq);
         eg += sign * (4i32 - our_dist as i32).max(0) * PASSER_KING_PROXIMITY_EG;
         eg += sign * (their_dist as i32 - 3).max(0) * PASSER_ENEMY_KING_DIST_EG;
     }
 
     // Connected passed pawns
-    let mut adj_pawns = adj_files & our_pawns;
+    let mut adj_pawns = passed.adj_files & passed.our_pawns;
     while adj_pawns != 0 {
         let adj_sq = bb_pop_lsb(&mut adj_pawns);
         let adj_file_bb = BB_FILES[sq_file(adj_sq) as usize];
         let adj_rank = sq_rank(adj_sq);
-        let adj_ahead = ranks_ahead(color, adj_rank, adj_file_bb | BB_FILES[file as usize]);
-        if their_pawns & adj_ahead == 0 {
+        let adj_ahead = ranks_ahead(
+            color,
+            adj_rank,
+            adj_file_bb | BB_FILES[passed.file as usize],
+        );
+        if passed.their_pawns & adj_ahead == 0 {
             mg += sign * CONNECTED_PASSER_BONUS.0;
             eg += sign * CONNECTED_PASSER_BONUS.1;
             break;
@@ -906,7 +790,7 @@ fn passed_pawn_bonuses(
 
     // Rook behind passed pawn
     let rooks = board.pieces[ci][PieceType::Rook as usize];
-    let behind_mask = ranks_behind_inclusive(color, rank, file_bb);
+    let behind_mask = ranks_behind_inclusive(color, passed.rank, passed.file_bb);
     if rooks & behind_mask != 0 {
         mg += sign * ROOK_BEHIND_PASSER_BONUS.0;
         eg += sign * ROOK_BEHIND_PASSER_BONUS.1;
@@ -1049,9 +933,7 @@ fn pawn_structure(board: &Board) -> (i32, i32) {
                 rank
             };
             if their_pawns & ahead_mask == 0 && our_pawns & ranks_ahead(color, rank, file_bb) == 0 {
-                let (pmg, peg) = passed_pawn_bonuses(
-                    board,
-                    color,
+                let passed = PassedPawnContext {
                     sq,
                     rank,
                     file,
@@ -1060,7 +942,8 @@ fn pawn_structure(board: &Board) -> (i32, i32) {
                     our_pawns,
                     their_pawns,
                     promo_dist,
-                );
+                };
+                let (pmg, peg) = passed_pawn_bonuses(board, color, passed);
                 mg += pmg;
                 eg += peg;
             }
@@ -1236,109 +1119,7 @@ fn weak_square_eval(board: &Board, _ctx: &EvalContext) -> (i32, i32) {
 }
 
 // ============================================================
-// Section 9: Good knight vs bad bishop (Boa imbalance)
-// ============================================================
-//
-// In closed positions, knights are superior to bishops because
-// bishops need open diagonals. Boa frequently engineered positions
-// where he had the knight and his opponent had a bad bishop.
-
-fn knight_vs_bishop_eval(board: &Board) -> (i32, i32) {
-    let mut mg = 0i32;
-    let mut eg = 0i32;
-
-    // Count pawns on center files (d and e) to determine if position is closed
-    let center_files = BB_FILES[3] | BB_FILES[4]; // d and e files
-    let all_pawns =
-        board.pieces[0][PieceType::Pawn as usize] | board.pieces[1][PieceType::Pawn as usize];
-    let center_pawns = (all_pawns & center_files).count_ones();
-
-    if center_pawns < CLOSED_CENTER_PAWN_THRESHOLD {
-        return (0, 0);
-    }
-
-    for &color in &[Color::White, Color::Black] {
-        let sign = if color == Color::White { 1 } else { -1 };
-        let ci = color as usize;
-        let ti = color.flip() as usize;
-
-        let our_knights = board.pieces[ci][PieceType::Knight as usize].count_ones();
-        let our_bishops = board.pieces[ci][PieceType::Bishop as usize].count_ones();
-        let their_knights = board.pieces[ti][PieceType::Knight as usize].count_ones();
-        let their_bishops = board.pieces[ti][PieceType::Bishop as usize].count_ones();
-
-        // We have knight(s), no bishop; they have bishop(s), no knight
-        if our_knights > 0 && our_bishops == 0 && their_bishops > 0 && their_knights == 0 {
-            mg += sign * KNIGHT_VS_BISHOP_CLOSED_BONUS.0;
-            eg += sign * KNIGHT_VS_BISHOP_CLOSED_BONUS.1;
-        }
-    }
-
-    (mg, eg)
-}
-
-/// Count enemy pawn breaks: enemy pawns that can advance adjacent to our pawns.
-fn count_pawn_breaks(color: Color, our_pawns: Bb, their_pawns: Bb, occ_all: Bb) -> i32 {
-    let mut tp = their_pawns;
-    let mut count = 0i32;
-    while tp != 0 {
-        let sq = bb_pop_lsb(&mut tp);
-        let f = sq_file(sq);
-        let adj = if f > 0 { BB_FILES[(f - 1) as usize] } else { 0 }
-            | if f < 7 { BB_FILES[(f + 1) as usize] } else { 0 };
-        if adj & our_pawns == 0 {
-            continue;
-        }
-
-        // They are the opponent of `color`. If color is White, they are Black (advance = rank-1).
-        let advance_sq = if color == Color::White {
-            if sq_rank(sq) == 0 {
-                continue;
-            }
-            sq - 8
-        } else {
-            if sq_rank(sq) == 7 {
-                continue;
-            }
-            sq + 8
-        };
-        if occ_all & bb(advance_sq) == 0 {
-            count += 1;
-        }
-    }
-    count
-}
-
-// ============================================================
-// Section 10: Prophylaxis evaluation (Boa's #1 trait)
-// ============================================================
-//
-// Prophylaxis = preventing opponent's plans. In evaluation terms,
-// we penalize positions where the opponent has available pawn breaks
-// (pawns that can advance to challenge our structure) and reward
-// positions where those breaks have been prevented.
-
-fn prophylaxis_eval(board: &Board) -> (i32, i32) {
-    let mut mg = 0i32;
-    let mut eg = 0i32;
-
-    for &color in &[Color::White, Color::Black] {
-        let sign = if color == Color::White { 1 } else { -1 };
-        let ci = color as usize;
-        let ti = color.flip() as usize;
-        let our_pawns = board.pieces[ci][PieceType::Pawn as usize];
-        let their_pawns = board.pieces[ti][PieceType::Pawn as usize];
-
-        let break_count = count_pawn_breaks(color, our_pawns, their_pawns, board.occ_all);
-        mg += sign * break_count * ENEMY_PAWN_BREAK_PENALTY.0;
-        eg += sign * break_count * ENEMY_PAWN_BREAK_PENALTY.1;
-    }
-
-    (mg, eg)
-}
-
-// ============================================================
-// Section 11: Piece coordination & activity (combined)
+// Section 9: Piece coordination & activity (combined)
 // ============================================================
 //
 // Combines multiple data-driven signals into one cohesive term:
@@ -1513,79 +1294,6 @@ fn advanced_pawn_eval(board: &Board) -> (i32, i32) {
     (mg, eg)
 }
 
-// ============================================================
-// Section 19: Min piece mobility (data-driven, effect +0.171)
-// ============================================================
-//
-// A penalty when our least mobile piece has very few moves.
-// Having a trapped or nearly trapped piece is a major liability.
-
-fn min_piece_mobility_eval(board: &Board, ctx: &EvalContext) -> (i32, i32) {
-    let mut mg = 0i32;
-    let mut eg = 0i32;
-
-    for &color in &[Color::White, Color::Black] {
-        let sign = if color == Color::White { 1 } else { -1 };
-        let ci = color as usize;
-        let occ = board.occ_all;
-        let our_occ = board.occ[ci];
-
-        let their_pawn_attacks = if color == Color::White {
-            pawn_attacks_black(board.pieces[1][PieceType::Pawn as usize])
-        } else {
-            pawn_attacks_white(board.pieces[0][PieceType::Pawn as usize])
-        };
-
-        let mut min_mob = u32::MAX;
-        let mut has_piece = false;
-
-        // Knights
-        let mut knights = board.pieces[ci][PieceType::Knight as usize];
-        while knights != 0 {
-            has_piece = true;
-            let sq = bb_pop_lsb(&mut knights);
-            let mob = (ctx.atk.knight[sq as usize] & !our_occ & !their_pawn_attacks).count_ones();
-            min_mob = min_mob.min(mob);
-        }
-
-        // Bishops
-        let mut bishops = board.pieces[ci][PieceType::Bishop as usize];
-        while bishops != 0 {
-            has_piece = true;
-            let sq = bb_pop_lsb(&mut bishops);
-            let mob =
-                (ctx.atk.bishop_attacks(sq, occ) & !our_occ & !their_pawn_attacks).count_ones();
-            min_mob = min_mob.min(mob);
-        }
-
-        // Rooks
-        let mut rooks = board.pieces[ci][PieceType::Rook as usize];
-        while rooks != 0 {
-            has_piece = true;
-            let sq = bb_pop_lsb(&mut rooks);
-            let mob = (ctx.atk.rook_attacks(sq, occ) & !our_occ).count_ones();
-            min_mob = min_mob.min(mob);
-        }
-
-        // Queens
-        let mut queens = board.pieces[ci][PieceType::Queen as usize];
-        while queens != 0 {
-            has_piece = true;
-            let sq = bb_pop_lsb(&mut queens);
-            let mob =
-                (ctx.atk.queen_attacks(sq, occ) & !our_occ & !their_pawn_attacks).count_ones();
-            min_mob = min_mob.min(mob);
-        }
-
-        if has_piece && min_mob <= MIN_MOBILITY_PENALTY_THRESHOLD {
-            mg += sign * MIN_MOBILITY_PENALTY.0;
-            eg += sign * MIN_MOBILITY_PENALTY.1;
-        }
-    }
-
-    (mg, eg)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1611,18 +1319,18 @@ mod tests {
             rank
         };
 
-        passed_pawn_bonuses(
-            &board,
-            color,
+        let passed = PassedPawnContext {
             sq,
             rank,
             file,
             file_bb,
             adj_files,
-            board.pieces[ci][PieceType::Pawn as usize],
-            board.pieces[color.flip() as usize][PieceType::Pawn as usize],
+            our_pawns: board.pieces[ci][PieceType::Pawn as usize],
+            their_pawns: board.pieces[color.flip() as usize][PieceType::Pawn as usize],
             promo_dist,
-        )
+        };
+
+        passed_pawn_bonuses(&board, color, passed)
     }
 
     #[test]

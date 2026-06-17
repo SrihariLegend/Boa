@@ -93,7 +93,7 @@ pub fn sq_from_name(s: &str) -> Option<Square> {
     let mut chars = s.chars();
     let file = chars.next()? as u8;
     let rank = chars.next()? as u8;
-    if file < b'a' || file > b'h' || rank < b'1' || rank > b'8' {
+    if !(b'a'..=b'h').contains(&file) || !(b'1'..=b'8').contains(&rank) {
         return None;
     }
     Some(sq_from(file - b'a', rank - b'1'))
@@ -399,6 +399,5 @@ pub const CR_BLACK: u8 = CR_BLACK_KINGSIDE | CR_BLACK_QUEENSIDE;
 const TOTAL_NON_PAWN_MATERIAL: i32 = 2 * (320 + 330 + 2 * 500 + 900);
 
 pub fn game_phase(non_pawn_material: i32) -> i32 {
-    let phase = (non_pawn_material * 256 / TOTAL_NON_PAWN_MATERIAL).min(256);
-    phase
+    (non_pawn_material * 256 / TOTAL_NON_PAWN_MATERIAL).min(256)
 }

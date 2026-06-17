@@ -5,8 +5,6 @@
 // Uses magic bitboards for bishop and rook sliding attacks.
 // Magic numbers are found at runtime via brute-force search during init().
 
-#![allow(dead_code)]
-
 use crate::board::Board;
 use crate::types::*;
 
@@ -23,23 +21,12 @@ pub struct AttackTables {
     bishop_table: Vec<Bb>,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Default)]
 struct MagicEntry {
     mask: Bb,
     magic: u64,
     shift: u32,
     offset: usize,
-}
-
-impl Default for MagicEntry {
-    fn default() -> Self {
-        MagicEntry {
-            mask: 0,
-            magic: 0,
-            shift: 0,
-            offset: 0,
-        }
-    }
 }
 
 // ---- Mask generation ----
@@ -88,7 +75,7 @@ fn sliding_attacks_rook(sq: Square, occ: Bb) -> Bb {
     for (dr, df) in [(0i32, 1i32), (0, -1), (1, 0), (-1, 0)] {
         let mut cr = r + dr;
         let mut cf = f + df;
-        while cr >= 0 && cr <= 7 && cf >= 0 && cf <= 7 {
+        while (0..=7).contains(&cr) && (0..=7).contains(&cf) {
             let s = (cr * 8 + cf) as u32;
             atk |= 1u64 << s;
             if occ & (1u64 << s) != 0 {
@@ -108,7 +95,7 @@ fn sliding_attacks_bishop(sq: Square, occ: Bb) -> Bb {
     for (dr, df) in [(1i32, 1i32), (1, -1), (-1, 1), (-1, -1)] {
         let mut cr = r + dr;
         let mut cf = f + df;
-        while cr >= 0 && cr <= 7 && cf >= 0 && cf <= 7 {
+        while (0..=7).contains(&cr) && (0..=7).contains(&cf) {
             let s = (cr * 8 + cf) as u32;
             atk |= 1u64 << s;
             if occ & (1u64 << s) != 0 {
@@ -670,262 +657,8 @@ fn gen_castling(board: &Board, king_sq: Square, us: Color, occ: Bb, list: &mut M
     }
 }
 
-/// Generate quiet (non-capture) moves that give check.
-/// Used in quiescence search to find tactical checks.
-/// Only generates knight and discovered checks for efficiency.
-pub fn gen_quiet_checks(board: &Board, atk: &AttackTables) -> MoveList {
-    let mut list = MoveList::new();
-    let us = board.side;
-    let ui = us as usize;
-    let ti = us.flip() as usize;
-    let occ = board.occ_all;
-    let _our = board.occ[ui];
-    let their_king_sq = board.king_sq[ti];
-    if their_king_sq == NO_SQUARE {
-        return list;
-    }
-
-    // Knight checks: knight moves to a square that attacks the enemy king
-    let king_atk = atk.knight[their_king_sq as usize];
-    let mut knights = board.pieces[ui][PieceType::Knight as usize];
-    while knights != 0 {
-        let from = bb_pop_lsb(&mut knights);
-        // Non-capture moves that land on a square attacking the enemy king
-        let targets = atk.knight[from as usize] & !occ & king_atk;
-        add_moves(from, targets, &mut list);
-    }
-
-    // Bishop/Queen discovered checks via rook movement are complex.
-    // For simplicity, only generate direct piece checks:
-
-    // Bishop checks: bishop moves to a square on enemy king's diagonals
-    let king_bishop_rays = atk.bishop_attacks(their_king_sq, occ);
-    let mut bishops = board.pieces[ui][PieceType::Bishop as usize];
-    while bishops != 0 {
-        let from = bb_pop_lsb(&mut bishops);
-        let targets = atk.bishop_attacks(from, occ) & !occ & king_bishop_rays;
-        add_moves(from, targets, &mut list);
-    }
-
-    // Rook checks: rook moves to a square on enemy king's rank/file
-    let king_rook_rays = atk.rook_attacks(their_king_sq, occ);
-    let mut rooks = board.pieces[ui][PieceType::Rook as usize];
-    while rooks != 0 {
-        let from = bb_pop_lsb(&mut rooks);
-        let targets = atk.rook_attacks(from, occ) & !occ & king_rook_rays;
-        add_moves(from, targets, &mut list);
-    }
-
-    // Queen checks: queen moves that directly check the king
-    let king_queen_rays = king_bishop_rays | king_rook_rays;
-    let mut queens = board.pieces[ui][PieceType::Queen as usize];
-    while queens != 0 {
-        let from = bb_pop_lsb(&mut queens);
-        let targets = atk.queen_attacks(from, occ) & !occ & king_queen_rays;
-        add_moves(from, targets, &mut list);
-    }
-
-    list
-}
-
 // ============================================================
-// Section 4b: Static Exchange Evaluation (SEE)
-// ============================================================
-
-/// SEE piece values — simpler than eval values, just for exchange calculation
-const SEE_VALUES: [i32; 7] = [
-    100,   // Pawn
-    320,   // Knight
-    330,   // Bishop
-    500,   // Rook
-    900,   // Queen
-    20000, // King
-    0,     // None
-];
-
-/// Get the least valuable attacker of a square for the given side.
-/// Returns the piece type and removes it from the `occ` and piece bitboards.
-fn least_valuable_attacker(
-    board: &Board,
-    atk: &AttackTables,
-    to: Square,
-    side: Color,
-    occ: &mut Bb,
-) -> PieceType {
-    let ci = side as usize;
-
-    // Pawns
-    let pawn_attackers = if side == Color::White {
-        // White pawns attack from below: to-7 (left) and to-9 (right)
-        let mut mask = 0u64;
-        if to >= 9 && sq_file(to) > 0 {
-            mask |= bb(to - 9);
-        }
-        if to >= 7 && sq_file(to) < 7 {
-            mask |= bb(to - 7);
-        }
-        mask
-    } else {
-        // Black pawns attack from above: to+7 (left) and to+9 (right)
-        let mut mask = 0u64;
-        if to <= 56 && sq_file(to) > 0 {
-            mask |= bb(to + 7);
-        }
-        if to <= 54 && sq_file(to) < 7 {
-            mask |= bb(to + 9);
-        }
-        mask
-    };
-    let pawns = pawn_attackers & board.pieces[ci][PieceType::Pawn as usize] & *occ;
-    if pawns != 0 {
-        *occ ^= bb(bb_lsb(pawns));
-        return PieceType::Pawn;
-    }
-
-    // Knights
-    let knights = atk.knight[to as usize] & board.pieces[ci][PieceType::Knight as usize] & *occ;
-    if knights != 0 {
-        *occ ^= bb(bb_lsb(knights));
-        return PieceType::Knight;
-    }
-
-    // Bishops
-    let bishop_atk = atk.bishop_attacks(to, *occ);
-    let bishops = bishop_atk & board.pieces[ci][PieceType::Bishop as usize] & *occ;
-    if bishops != 0 {
-        *occ ^= bb(bb_lsb(bishops));
-        return PieceType::Bishop;
-    }
-
-    // Rooks
-    let rook_atk = atk.rook_attacks(to, *occ);
-    let rooks = rook_atk & board.pieces[ci][PieceType::Rook as usize] & *occ;
-    if rooks != 0 {
-        *occ ^= bb(bb_lsb(rooks));
-        return PieceType::Rook;
-    }
-
-    // Queens
-    let queen_atk = bishop_atk | rook_atk;
-    let queens = queen_atk & board.pieces[ci][PieceType::Queen as usize] & *occ;
-    if queens != 0 {
-        *occ ^= bb(bb_lsb(queens));
-        return PieceType::Queen;
-    }
-
-    // King
-    let kings = atk.king[to as usize] & board.pieces[ci][PieceType::King as usize] & *occ;
-    if kings != 0 {
-        *occ ^= bb(bb_lsb(kings));
-        return PieceType::King;
-    }
-
-    PieceType::None
-}
-
-/// Static Exchange Evaluation (SEE)
-///
-/// Determines the material outcome of a capture exchange on the target square.
-/// Returns the net material gain from the perspective of the side making the move.
-///
-/// A positive return means the capture sequence is winning.
-/// A negative return means the capture sequence is losing.
-/// Zero means an equal exchange.
-pub fn see(board: &Board, atk: &AttackTables, m: Move) -> i32 {
-    let from = move_from(m);
-    let to = move_to(m);
-
-    let mover_piece = board.sq_piece[from as usize];
-    if mover_piece == PIECE_NONE {
-        return 0;
-    }
-    let mover_pt = piece_type(mover_piece);
-    let mover_color = piece_color(mover_piece);
-
-    // Initial captured piece value
-    let cap_piece = board.sq_piece[to as usize];
-    let mut gain = if cap_piece != PIECE_NONE {
-        SEE_VALUES[piece_type(cap_piece) as usize]
-    } else if move_flags(m) == MF_EN_PASSANT {
-        SEE_VALUES[PieceType::Pawn as usize]
-    } else {
-        0 // quiet move — SEE = 0 for non-captures
-    };
-
-    // For promotions, add the promotion piece value minus pawn value
-    if move_flags(m) == MF_PROMOTION {
-        let promo_pt = move_promo_pt(m);
-        gain += SEE_VALUES[promo_pt as usize] - SEE_VALUES[PieceType::Pawn as usize];
-    }
-
-    // Swap list: track gains at each recapture depth
-    let mut gains = [0i32; 32];
-    gains[0] = gain;
-    let mut depth = 0usize;
-
-    // Remove the initial mover from occupancy
-    let mut occ = board.occ_all ^ bb(from);
-    // For en passant, also remove the captured pawn
-    if move_flags(m) == MF_EN_PASSANT {
-        let ep_cap_sq = if mover_color == Color::White {
-            to - 8
-        } else {
-            to + 8
-        };
-        occ ^= bb(ep_cap_sq);
-    }
-
-    let mut current_attacker_value = if move_flags(m) == MF_PROMOTION {
-        SEE_VALUES[move_promo_pt(m) as usize]
-    } else {
-        SEE_VALUES[mover_pt as usize]
-    };
-    let mut side = mover_color.flip();
-
-    loop {
-        depth += 1;
-        if depth >= 32 {
-            break;
-        }
-
-        // Negamax: the gain at this depth is the value of recapturing
-        // minus whatever the opponent gained
-        gains[depth] = current_attacker_value - gains[depth - 1];
-
-        // Pruning: if the side to recapture can't improve their position
-        // even by capturing, they won't recapture (stand pat)
-        if (-gains[depth]).max(gains[depth - 1]) < 0 {
-            break;
-        }
-
-        // Find least valuable attacker for this side
-        let pt = least_valuable_attacker(board, atk, to, side, &mut occ);
-        if pt == PieceType::None {
-            break;
-        }
-
-        current_attacker_value = SEE_VALUES[pt as usize];
-        side = side.flip();
-    }
-
-    // Minimax the gains: unwind from the deepest capture
-    while depth > 0 {
-        depth -= 1;
-        gains[depth] = -((-gains[depth]).max(gains[depth + 1]));
-    }
-
-    gains[0]
-}
-
-/// Quick SEE threshold test: returns true if SEE >= threshold.
-/// Slightly more efficient than computing full SEE when you only need a boolean.
-#[inline]
-pub fn see_ge(board: &Board, atk: &AttackTables, m: Move, threshold: i32) -> bool {
-    see(board, atk, m) >= threshold
-}
-
-// ============================================================
-// Section 5: Perft (for correctness verification)
+// Section 4b: Perft (for correctness verification)
 // ============================================================
 
 pub fn perft(board: &mut Board, atk: &AttackTables, z: &crate::board::Zobrist, depth: u32) -> u64 {

@@ -2,8 +2,6 @@
 // board.rs — Board representation, FEN parsing, make/unmake move
 // ============================================================
 
-#![allow(dead_code)]
-
 use crate::types::*;
 
 // ---- Zobrist hashing tables ----
@@ -26,21 +24,21 @@ impl Zobrist {
             state
         };
         let mut piece_sq = [[[0u64; 64]; 6]; 2];
-        for c in 0..2 {
-            for pt in 0..6 {
-                for sq in 0..64 {
-                    piece_sq[c][pt][sq] = next();
+        for color_entries in &mut piece_sq {
+            for piece_entries in color_entries {
+                for square_entry in piece_entries {
+                    *square_entry = next();
                 }
             }
         }
         let side = next();
         let mut castling = [0u64; 16];
-        for i in 0..16 {
-            castling[i] = next();
+        for entry in &mut castling {
+            *entry = next();
         }
         let mut ep_file = [0u64; 8];
-        for i in 0..8 {
-            ep_file[i] = next();
+        for entry in &mut ep_file {
+            *entry = next();
         }
         Zobrist {
             piece_sq,
@@ -109,6 +107,7 @@ fn display_piece_char(p: Piece) -> char {
 }
 
 /// Push castling right characters onto a FEN string.
+#[allow(dead_code)]
 fn push_castling_chars(s: &mut String, castling: u8) {
     if castling & CR_WHITE_KINGSIDE != 0 {
         s.push('K');
@@ -150,6 +149,7 @@ impl Board {
     // ---- Piece helpers ----
 
     #[inline(always)]
+    #[allow(dead_code)]
     pub fn piece_bb(&self, c: Color, pt: PieceType) -> Bb {
         self.pieces[c as usize][pt as usize]
     }
@@ -193,7 +193,7 @@ impl Board {
             Color::Black
         };
         let pt = PieceType::from_char(ch);
-        if pt == PieceType::None || rank < 0 || rank > 7 {
+        if pt == PieceType::None || !(0..=7).contains(&rank) {
             return;
         }
         let sq = sq_from(*file as u8, rank as u8);
@@ -284,6 +284,7 @@ impl Board {
 
     // ---- FEN export ----
 
+    #[allow(dead_code)]
     pub fn to_fen(&self) -> String {
         let mut s = String::new();
         for rank in (0..8).rev() {

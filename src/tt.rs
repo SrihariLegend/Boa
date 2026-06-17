@@ -2,8 +2,6 @@
 // tt.rs — Transposition table
 // ============================================================
 
-#![allow(dead_code)]
-
 use crate::types::{Move, Score, MAX_PLY, MOVE_NONE, SCORE_MATE};
 
 /// Mate scores are stored relative to the *node* (distance to mate from here),
@@ -124,9 +122,8 @@ impl TranspositionTable {
 
     pub fn hashfull(&self) -> usize {
         let sample = self.entries.iter().take(1000);
-        let used = sample
+        sample
             .filter(|e| e.age == self.age && e.bound != Bound::None)
-            .count();
-        used
+            .count()
     }
 }
