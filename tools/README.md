@@ -241,6 +241,63 @@ python3 tools/texel_tune.py analysis/restriction_signal/texel_quiet.csv
 Treat the output as candidate UCI options first. Validate them with a focused
 SPRT or non-regression match before changing defaults in code.
 
+The first GM-outcome scale candidate improved quiet-position MSE but failed
+SPRT against the current defaults:
+
+```text
+tuned vs default: 718 - 879 - 275 [0.457] 1872
+Elo difference: -30.0 +/- 14.6, LOS: 0.0%, H0 accepted
+tuned as White: 379 - 406 - 151 [0.486]
+tuned as Black: 339 - 473 - 124 [0.428]
+```
+
+Do not ship that scale set as defaults. Treat GM-outcome tuning as a diagnostic
+fit, not a strength proxy.
+
+## Self-Play Texel Dataset
+
+Path: `tools/self_play_dataset.mjs`
+
+This wrapper generates Boa-vs-Boa games with cutechess and then feeds the PGN
+through `restriction_signal.mjs`. Use it for Phase 1 tuning data that matches
+the positions Boa actually reaches in play.
+
+Small smoke run:
+
+```sh
+cargo build --release
+node tools/self_play_dataset.mjs \
+  --games 20 \
+  --quiet \
+  --positions 1000 \
+  --out analysis/self_play/smoke.csv
+python3 tools/texel_tune.py analysis/self_play/smoke.csv --limit 1000
+```
+
+Larger self-play extraction:
+
+```sh
+node tools/self_play_dataset.mjs \
+  --games 5000 \
+  --tc 1+0.01 \
+  --concurrency 12 \
+  --quiet \
+  --positions 500000 \
+  --out analysis/self_play/texel_self_play.csv
+python3 tools/texel_tune.py analysis/self_play/texel_self_play.csv
+```
+
+For very large runs, generate the PGN once and reuse it while iterating on
+extraction parameters:
+
+```sh
+node tools/self_play_dataset.mjs \
+  --skip-games \
+  --pgn analysis/self_play/self_play.pgn \
+  --quiet \
+  --out analysis/self_play/texel_self_play.csv
+```
+
 ## Player Style Probe
 
 Path: `tools/player_style_probe.mjs`
