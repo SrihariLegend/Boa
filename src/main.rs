@@ -6,6 +6,7 @@
 
 mod board;
 mod config;
+mod diagnostics;
 mod eval;
 mod movegen;
 mod search;

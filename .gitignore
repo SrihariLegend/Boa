@@ -12,6 +12,7 @@
 /tools/match_manager/engines/
 /tools/match_manager/matches/
 /tools/analysis_results/
+/analysis/
 
 # Python bytecode cache
 __pycache__/
