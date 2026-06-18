@@ -159,6 +159,17 @@ function isQuietPosition(game, move) {
   return !move.captured && !move.promotion;
 }
 
+function replayMove(game, move) {
+  const replayed = game.move({
+    from: move.from,
+    to: move.to,
+    promotion: move.promotion,
+  });
+  if (!replayed) {
+    throw new Error(`Could not replay move ${move.lan ?? move.san ?? `${move.from}${move.to}`}`);
+  }
+}
+
 class UciEngine {
   constructor(command) {
     this.child = spawn(command, [], {stdio: ["pipe", "pipe", "inherit"]});
@@ -231,18 +242,18 @@ function collectCandidates(inputs) {
 
       const headers = game.getHeaders();
       const history = game.history({verbose: true});
-      const replay = new Chess();
+      const replay = headers.FEN ? new Chess(headers.FEN) : new Chess();
 
       for (let moveIndex = 0; moveIndex < history.length; moveIndex++) {
         const move = history[moveIndex];
         const ply = moveIndex + 1;
         const future = history[moveIndex + futurePlies - 1];
         if (!future || ply < minPly || ply > maxPly) {
-          replay.move(move);
+          replayMove(replay, move);
           continue;
         }
         if (quietOnly && !isQuietPosition(replay, move)) {
-          replay.move(move);
+          replayMove(replay, move);
           continue;
         }
 
@@ -265,7 +276,7 @@ function collectCandidates(inputs) {
           if (candidates.length >= maxPositions) return candidates;
         }
 
-        replay.move(move);
+        replayMove(replay, move);
       }
     }
   }
