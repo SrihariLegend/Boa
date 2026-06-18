@@ -298,6 +298,55 @@ node tools/self_play_dataset.mjs \
   --out analysis/self_play/texel_self_play.csv
 ```
 
+## Internal PST Tuning
+
+Path: `tools/texel_tune_pst.py`
+
+This is the first internal-weight tuning slice. It tunes only pawn and knight
+PST midgame/endgame entries while keeping the rest of the eval fixed. It uses
+the self-play CSV directly and treats `white_score_cp` as the fixed baseline,
+subtracting and replacing only the tuned PST contribution.
+
+Smoke run:
+
+```sh
+python3 tools/texel_tune_pst.py \
+  analysis/self_play/texel_self_play.csv \
+  --limit 5000 \
+  --steps 4,2 \
+  --passes 1
+```
+
+Full first-pass run:
+
+```sh
+python3 tools/texel_tune_pst.py \
+  analysis/self_play/texel_self_play.csv \
+  --steps 4,2,1 \
+  --passes 1 \
+  > analysis/self_play/pst_tune_self_play.txt
+```
+
+The first full run on 293,068 quiet self-play rows produced:
+
+```text
+initial_mse=0.16653538
+best_mse=0.16554868
+delta_mse=0.00098670
+```
+
+Validation against `origin/main` at `1+0.01`, 10,000 games:
+
+```text
+pst vs baseline: 4243 - 4110 - 1647 [0.507]
+Elo difference: +4.6 +/- 6.2
+LOS: 92.7%
+SPRT: llr 1.05, lbound -2.94, ubound 2.94
+```
+
+This did not cross the SPRT accept bound, but it was a non-regressing result
+for the first narrow internal-weight tuning slice.
+
 ## Player Style Probe
 
 Path: `tools/player_style_probe.mjs`
