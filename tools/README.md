@@ -15,9 +15,9 @@ cd tools/match_manager
 npm install
 ```
 
-Generated match state and build output should stay local. Do not commit
+Generated match state, analysis datasets, and build output should stay local. Do not commit
 `target/`, `tools/match_manager/dist/`, `tools/match_manager/engines/`, or
-`tools/match_manager/matches/`.
+`tools/match_manager/matches/`, or `analysis/`.
 
 ## Release Workflow
 
@@ -130,6 +130,38 @@ Path: `tools/openings.epd`
 This is the opening suite used by Match Manager and the direct cutechess command
 above. Keep opening selection constant when comparing two engine versions so
 the match stays fair and reproducible.
+
+## Restriction Signal Dataset
+
+Path: `tools/restriction_signal.mjs`
+
+This is the Phase 0 research workflow. It samples positions from the bundled GM
+archives, asks Boa for diagnostic restriction features, and labels each row with
+the static eval four plies later. The generated CSV is local analysis output and
+is ignored by git under `analysis/`.
+
+Small smoke run:
+
+```sh
+cargo build --release
+node tools/restriction_signal.mjs --positions 200 --stride 10 --progress 50
+python3 tools/analyze_restriction_signal.py analysis/restriction_signal/gm_features.csv
+```
+
+Larger GM archive run:
+
+```sh
+node tools/restriction_signal.mjs \
+  --positions 500000 \
+  --stride 1 \
+  --min-ply 12 \
+  --max-ply 100 \
+  --future-plies 4 \
+  --out analysis/restriction_signal/gm_features.csv
+```
+
+Use `--quiet` when you want the sample restricted to positions where the side to
+move is not in check and the next played move is not a capture or promotion.
 
 ## Player Style Probe
 

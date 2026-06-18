@@ -377,8 +377,39 @@ pub struct EvalContext<'a> {
     pub options: EngineOptions,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EvalBreakdown {
+    pub material_mg: i32,
+    pub material_eg: i32,
+    pub pst_mg: i32,
+    pub pst_eg: i32,
+    pub mobility_mg: i32,
+    pub mobility_eg: i32,
+    pub mobility_white: u32,
+    pub mobility_black: u32,
+    pub pawn_structure_mg: i32,
+    pub pawn_structure_eg: i32,
+    pub king_safety_mg: i32,
+    pub king_safety_eg: i32,
+    pub freedom: i32,
+    pub trade_down_mg: i32,
+    pub trade_down_eg: i32,
+    pub weak_squares_mg: i32,
+    pub weak_squares_eg: i32,
+    pub coordination_mg: i32,
+    pub coordination_eg: i32,
+    pub advanced_pawns_mg: i32,
+    pub advanced_pawns_eg: i32,
+    pub white_score: i32,
+    pub side_to_move_score: i32,
+}
+
 /// Evaluate the position. Returns score in centipawns from the perspective of the side to move.
 pub fn evaluate(board: &Board, ctx: &EvalContext) -> Score {
+    evaluate_breakdown(board, ctx).side_to_move_score
+}
+
+pub fn evaluate_breakdown(board: &Board, ctx: &EvalContext) -> EvalBreakdown {
     let phase = compute_phase(board);
 
     let mut mg_score = 0i32;
@@ -394,6 +425,8 @@ pub fn evaluate(board: &Board, ctx: &EvalContext) -> Score {
 
     let (mob_mg, mob_eg) = mobility_and_activity(board, ctx);
     let (mob_mg, mob_eg) = scale_score_pair((mob_mg, mob_eg), ctx.options.eval.mobility_scale);
+    let mobility_white = side_mobility(board, ctx, Color::White);
+    let mobility_black = side_mobility(board, ctx, Color::Black);
     mg_score += mob_mg;
     eg_score += mob_eg;
 
@@ -437,7 +470,31 @@ pub fn evaluate(board: &Board, ctx: &EvalContext) -> Score {
 
     let tempo = TEMPO_BONUS;
     let side_sign = if board.side == Color::White { 1 } else { -1 };
-    score * side_sign + tempo
+    EvalBreakdown {
+        material_mg: mat_mg,
+        material_eg: mat_eg,
+        pst_mg,
+        pst_eg,
+        mobility_mg: mob_mg,
+        mobility_eg: mob_eg,
+        mobility_white,
+        mobility_black,
+        pawn_structure_mg: pawn_mg,
+        pawn_structure_eg: pawn_eg,
+        king_safety_mg: ks_mg,
+        king_safety_eg: ks_eg,
+        freedom,
+        trade_down_mg: trade_mg,
+        trade_down_eg: trade_eg,
+        weak_squares_mg: ws_mg,
+        weak_squares_eg: ws_eg,
+        coordination_mg: pc_mg,
+        coordination_eg: pc_eg,
+        advanced_pawns_mg: ap_mg,
+        advanced_pawns_eg: ap_eg,
+        white_score: score,
+        side_to_move_score: score * side_sign + tempo,
+    }
 }
 
 fn compute_phase(board: &Board) -> i32 {
@@ -605,7 +662,7 @@ fn outpost_bonus(sq: Square, color: Color, their_pawn_attacks: Bb, board: &Board
 
 /// Total pseudo-legal mobility for one side (pawns incl. pushes/captures,
 /// pieces, king). The raw input to the squeeze bonus.
-fn side_mobility(board: &Board, ctx: &EvalContext, color: Color) -> u32 {
+pub(crate) fn side_mobility(board: &Board, ctx: &EvalContext, color: Color) -> u32 {
     let ci = color as usize;
     let oi = color.flip() as usize;
     let occ = board.occ_all;

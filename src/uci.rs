@@ -4,6 +4,7 @@
 
 use crate::board::{Board, Zobrist};
 use crate::config::EngineOptions;
+use crate::diagnostics::{extract_restriction_features, RestrictionFeatures};
 use crate::movegen::{perft, AttackTables};
 use crate::search::{search, Limits, SearchContext};
 use crate::tt::TranspositionTable;
@@ -269,6 +270,15 @@ pub fn run() {
                 use crate::eval::{evaluate, EvalContext};
                 let score = evaluate(&board, &EvalContext { atk: &atk, options });
                 println!("eval: {} cp (side to move)", score);
+            }
+            Some("restriction_features_header") => {
+                println!("{}", RestrictionFeatures::csv_header());
+                let _ = io::stdout().flush();
+            }
+            Some("restriction_features") => {
+                let features = extract_restriction_features(&board, &atk, &z, options);
+                println!("{}", features.to_csv_row());
+                let _ = io::stdout().flush();
             }
             Some("bench") => {
                 let depth: u32 = tokens.next().and_then(|t| t.parse().ok()).unwrap_or(10);
