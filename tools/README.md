@@ -193,6 +193,54 @@ node tools/restriction_signal.mjs \
 Use `--quiet` when you want the sample restricted to positions where the side to
 move is not in check and the next played move is not a capture or promotion.
 
+## Texel Scale Tuning
+
+Path: `tools/texel_tune.py`
+
+This is the first Phase 1 tuning pass. It consumes quiet rows from
+`restriction_signal.mjs` and tunes Boa's exposed UCI eval scale knobs against
+game outcomes. By default it tunes the core terms plus trade-down:
+
+- material
+- PST
+- mobility
+- pawn structure
+- king safety
+- trade-down
+
+It recommends setting the current restriction-style terms to zero during this
+fit: freedom, weak squares, coordination, and advanced pawns. This keeps the
+baseline tuning focused on the classical terms that Phase 0 showed were the
+stronger signal.
+
+Small smoke run:
+
+```sh
+cargo build --release
+node tools/restriction_signal.mjs \
+  --quiet \
+  --positions 1000 \
+  --stride 20 \
+  --out analysis/restriction_signal/texel_smoke.csv
+python3 tools/texel_tune.py analysis/restriction_signal/texel_smoke.csv --limit 1000
+```
+
+Full initial GM tuning run:
+
+```sh
+node tools/restriction_signal.mjs \
+  --quiet \
+  --positions 500000 \
+  --stride 1 \
+  --min-ply 12 \
+  --max-ply 100 \
+  --out analysis/restriction_signal/texel_quiet.csv
+python3 tools/texel_tune.py analysis/restriction_signal/texel_quiet.csv
+```
+
+Treat the output as candidate UCI options first. Validate them with a focused
+SPRT or non-regression match before changing defaults in code.
+
 ## Player Style Probe
 
 Path: `tools/player_style_probe.mjs`
