@@ -24,6 +24,7 @@
 // ============================================================
 
 use crate::board::Board;
+use crate::config::{scale_score, scale_score_pair, EngineOptions};
 use crate::movegen::{pawn_attacks_black, pawn_attacks_white, AttackTables};
 use crate::types::*;
 
@@ -373,6 +374,7 @@ const QUEEN_MOBILITY: [(i32, i32); 28] = [
 
 pub struct EvalContext<'a> {
     pub atk: &'a AttackTables,
+    pub options: EngineOptions,
 }
 
 /// Evaluate the position. Returns score in centipawns from the perspective of the side to move.
@@ -382,39 +384,52 @@ pub fn evaluate(board: &Board, ctx: &EvalContext) -> Score {
     let mut mg_score = 0i32;
     let mut eg_score = 0i32;
 
-    let (mat_mg, mat_eg) = material_and_pst(board);
+    let ((mat_mg, mat_eg), (pst_mg, pst_eg)) = material_and_pst(board);
+    let (mat_mg, mat_eg) = scale_score_pair((mat_mg, mat_eg), ctx.options.eval.material_scale);
     mg_score += mat_mg;
     eg_score += mat_eg;
+    let (pst_mg, pst_eg) = scale_score_pair((pst_mg, pst_eg), ctx.options.eval.pst_scale);
+    mg_score += pst_mg;
+    eg_score += pst_eg;
 
     let (mob_mg, mob_eg) = mobility_and_activity(board, ctx);
+    let (mob_mg, mob_eg) = scale_score_pair((mob_mg, mob_eg), ctx.options.eval.mobility_scale);
     mg_score += mob_mg;
     eg_score += mob_eg;
 
     let (pawn_mg, pawn_eg) = pawn_structure(board);
+    let (pawn_mg, pawn_eg) =
+        scale_score_pair((pawn_mg, pawn_eg), ctx.options.eval.pawn_structure_scale);
     mg_score += pawn_mg;
     eg_score += pawn_eg;
 
     let (ks_mg, ks_eg) = king_safety(board, ctx);
+    let (ks_mg, ks_eg) = scale_score_pair((ks_mg, ks_eg), ctx.options.eval.king_safety_scale);
     mg_score += ks_mg;
     eg_score += ks_eg;
 
-    let freedom = freedom_metric(board, ctx);
+    let freedom = scale_score(freedom_metric(board, ctx), ctx.options.eval.freedom_scale);
     mg_score += freedom;
     eg_score += freedom;
 
     let (trade_mg, trade_eg) = trade_down_bonus(board);
+    let (trade_mg, trade_eg) =
+        scale_score_pair((trade_mg, trade_eg), ctx.options.eval.trade_down_scale);
     mg_score += trade_mg;
     eg_score += trade_eg;
 
     let (ws_mg, ws_eg) = weak_square_eval(board, ctx);
+    let (ws_mg, ws_eg) = scale_score_pair((ws_mg, ws_eg), ctx.options.eval.weak_squares_scale);
     mg_score += ws_mg;
     eg_score += ws_eg;
 
     let (pc_mg, pc_eg) = piece_coordination_eval(board, ctx);
+    let (pc_mg, pc_eg) = scale_score_pair((pc_mg, pc_eg), ctx.options.eval.coordination_scale);
     mg_score += pc_mg;
     eg_score += pc_eg;
 
     let (ap_mg, ap_eg) = advanced_pawn_eval(board);
+    let (ap_mg, ap_eg) = scale_score_pair((ap_mg, ap_eg), ctx.options.eval.advanced_pawns_scale);
     mg_score += ap_mg;
     eg_score += ap_eg;
 
@@ -431,9 +446,11 @@ fn compute_phase(board: &Board) -> i32 {
     game_phase(w + b)
 }
 
-fn material_and_pst(board: &Board) -> (i32, i32) {
-    let mut mg = 0i32;
-    let mut eg = 0i32;
+fn material_and_pst(board: &Board) -> ((i32, i32), (i32, i32)) {
+    let mut mat_mg = 0i32;
+    let mut mat_eg = 0i32;
+    let mut pst_mg_total = 0i32;
+    let mut pst_eg_total = 0i32;
     for c in [Color::White, Color::Black] {
         let sign = if c == Color::White { 1 } else { -1 };
         let ci = c as usize;
@@ -444,12 +461,14 @@ fn material_and_pst(board: &Board) -> (i32, i32) {
                 let sq = bb_pop_lsb(&mut pieces);
                 let mat = pt.material_value();
                 let (pst_mg, pst_eg) = pst_value(pt, sq, c);
-                mg += sign * (mat + pst_mg);
-                eg += sign * (mat + pst_eg);
+                mat_mg += sign * mat;
+                mat_eg += sign * mat;
+                pst_mg_total += sign * pst_mg;
+                pst_eg_total += sign * pst_eg;
             }
         }
     }
-    (mg, eg)
+    ((mat_mg, mat_eg), (pst_mg_total, pst_eg_total))
 }
 
 // ============================================================

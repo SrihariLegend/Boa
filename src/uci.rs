@@ -3,6 +3,7 @@
 // ============================================================
 
 use crate::board::{Board, Zobrist};
+use crate::config::EngineOptions;
 use crate::movegen::{perft, AttackTables};
 use crate::search::{search, Limits, SearchContext};
 use crate::tt::TranspositionTable;
@@ -13,9 +14,10 @@ fn handle_setoption<'a>(
     tokens: impl Iterator<Item = &'a str>,
     tt: &mut TranspositionTable,
     contempt: &mut i32,
+    options: &mut EngineOptions,
 ) {
-    let mut name = String::new();
-    let mut val = String::new();
+    let mut name_parts = Vec::new();
+    let mut value_parts = Vec::new();
     let mut reading_name = false;
     let mut reading_value = false;
     for tok in tokens {
@@ -30,15 +32,18 @@ fn handle_setoption<'a>(
             }
             t => {
                 if reading_name {
-                    name = t.to_ascii_lowercase();
+                    name_parts.push(t);
                 }
                 if reading_value {
-                    val = t.to_string();
+                    value_parts.push(t);
                 }
             }
         }
     }
-    match name.as_str() {
+    let name = name_parts.join(" ");
+    let val = value_parts.join(" ");
+    let name_key = name.to_ascii_lowercase().replace(' ', "");
+    match name_key.as_str() {
         "hash" => {
             let mb: usize = val.parse().unwrap_or(128);
             *tt = TranspositionTable::new(mb.clamp(1, 4096));
@@ -46,7 +51,9 @@ fn handle_setoption<'a>(
         "contempt" => {
             *contempt = val.parse().unwrap_or(20);
         }
-        _ => {}
+        _ => {
+            let _ = options.set_uci_option(&name, &val);
+        }
     }
 }
 
@@ -99,6 +106,7 @@ struct GoContext<'a> {
     z: &'a Zobrist,
     tt: &'a mut TranspositionTable,
     contempt: i32,
+    options: EngineOptions,
     stop_flag: &'a std::sync::atomic::AtomicBool,
 }
 
@@ -151,6 +159,7 @@ fn handle_go<'a>(tokens: impl Iterator<Item = &'a str>, go: GoContext<'_>) {
         limits,
         history_for_search,
         go.contempt,
+        go.options,
         go.stop_flag,
     );
     let result = search(go.board, &mut ctx);
@@ -169,6 +178,7 @@ pub fn run() {
     let mut board = Board::startpos();
     let mut position_history: Vec<u64> = Vec::new();
     let mut contempt = 20i32; // draw avoidance — Boa never seeks draws (positive = avoid draws for root side)
+    let mut options = EngineOptions::default();
 
     // Input thread: the search blocks the main thread, so "stop"/"quit" must
     // be seen by a reader thread that flips the stop flag immediately.
@@ -208,6 +218,7 @@ pub fn run() {
                 println!("id author Dirac");
                 println!("option name Hash type spin default 128 min 1 max 4096");
                 println!("option name Contempt type spin default 20 min -100 max 100");
+                print_engine_options();
                 println!("uciok");
                 let _ = io::stdout().flush();
             }
@@ -221,7 +232,7 @@ pub fn run() {
                 tt.clear();
             }
             Some("setoption") => {
-                handle_setoption(tokens, &mut tt, &mut contempt);
+                handle_setoption(tokens, &mut tt, &mut contempt, &mut options);
             }
             Some("position") => {
                 handle_position(tokens, &mut board, &mut position_history, &atk, &z);
@@ -237,6 +248,7 @@ pub fn run() {
                         z: &z,
                         tt: &mut tt,
                         contempt,
+                        options,
                         stop_flag: &stop_flag,
                     },
                 );
@@ -255,7 +267,7 @@ pub fn run() {
             }
             Some("eval") => {
                 use crate::eval::{evaluate, EvalContext};
-                let score = evaluate(&board, &EvalContext { atk: &atk });
+                let score = evaluate(&board, &EvalContext { atk: &atk, options });
                 println!("eval: {} cp (side to move)", score);
             }
             Some("bench") => {
@@ -264,6 +276,33 @@ pub fn run() {
             }
             _ => {}
         }
+    }
+}
+
+fn print_engine_options() {
+    println!("option name Search Restriction Ordering Scale type spin default 100 min 0 max 300");
+
+    for name in [
+        "Eval Material Scale",
+        "Eval PST Scale",
+        "Eval Mobility Scale",
+        "Eval Pawn Structure Scale",
+        "Eval King Safety Scale",
+        "Eval Freedom Scale",
+        "Eval Trade Down Scale",
+        "Eval Weak Squares Scale",
+        "Eval Coordination Scale",
+        "Eval Advanced Pawns Scale",
+    ] {
+        println!("option name {} type spin default 100 min 0 max 300", name);
+    }
+    for name in [
+        "Search Restriction Ordering",
+        "Search Squeeze Extensions",
+        "Search Squeeze Null Move Suppression",
+        "Search Squeeze LMR Relief",
+    ] {
+        println!("option name {} type check default true", name);
     }
 }
 

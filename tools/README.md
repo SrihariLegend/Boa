@@ -96,6 +96,33 @@ tools/cutechess-cli \
 For feature and optimization work, use either an SPRT run or a non-regression
 match and record the time control, openings, game count, and W-D-L result.
 
+## Ablation Runner
+
+Path: `tools/match_manager/src/ablation.ts`
+
+The ablation runner reuses Match Manager's snapshot and cutechess machinery to
+test whether individual Boa eval/search terms help. It runs one match per
+ablation with the same snapshot on both sides; the candidate side gets one UCI
+option changed, such as `Eval Freedom Scale=0`.
+
+First snapshot the current engine in Match Manager, then run:
+
+```sh
+cd tools/match_manager
+npm run ablate -- --engine baseline_main_boa --games 400 --tc 5+0.05
+```
+
+Useful options:
+
+- `--list`: show available ablations.
+- `--only no_eval_freedom,no_eval_coordination`: run a subset.
+- `--sprt`: enable cutechess SPRT with `elo0=0`, `elo1=5`.
+
+Interpretation: the reported Elo is from the ablated candidate's perspective.
+If `no_eval_freedom` loses clearly, the freedom term is useful. If it wins
+clearly, the term is harmful or overweighted. If it is within the error bar,
+the result is unclear and needs more games or a scale test.
+
 ## Openings
 
 Path: `tools/openings.epd`

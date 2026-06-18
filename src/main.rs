@@ -5,6 +5,7 @@
 // Pattern: Restriction → Prophylaxis → Improvement → Near-zugzwang → Error → Conversion
 
 mod board;
+mod config;
 mod eval;
 mod movegen;
 mod search;

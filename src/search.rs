@@ -14,6 +14,7 @@
 // ============================================================
 
 use crate::board::{Board, Zobrist};
+use crate::config::{scale_score, EngineOptions};
 use crate::eval::{evaluate, EvalContext};
 use crate::movegen::{gen_captures, gen_moves, AttackTables, MoveList};
 use crate::tt::{score_from_tt, score_to_tt, Bound, TranspositionTable};
@@ -314,6 +315,7 @@ struct LmrInput {
     gives_check: bool,
     in_check: bool,
     squeeze_mode: bool,
+    squeeze_lmr_relief: bool,
     improving: bool,
 }
 
@@ -326,6 +328,7 @@ pub struct SearchContext<'a> {
     pub limits: Limits,
     pub start_ms: u64,
     pub contempt: i32,
+    pub options: EngineOptions,
     pub root_color: Color,
 
     // Set by the UCI input thread when "stop"/"quit" arrives mid-search.
@@ -374,6 +377,7 @@ impl<'a> SearchContext<'a> {
         limits: Limits,
         history_hashes: Vec<u64>,
         contempt: i32,
+        options: EngineOptions,
         stop_flag: &'a std::sync::atomic::AtomicBool,
     ) -> Self {
         SearchContext {
@@ -385,6 +389,7 @@ impl<'a> SearchContext<'a> {
             start_ms: now_ms(),
             root_depth: 0,
             contempt,
+            options,
             root_color: Color::White, // set by search() before iterating
             history_hashes,
             nodes: 0,
@@ -512,7 +517,16 @@ pub fn bench(atk: &AttackTables, z: &Zobrist, depth: u32) {
             move_time: 10_000,
             ..Limits::default()
         };
-        let mut ctx = SearchContext::new(atk, z, &mut tt, limits, Vec::new(), 20, &no_stop);
+        let mut ctx = SearchContext::new(
+            atk,
+            z,
+            &mut tt,
+            limits,
+            Vec::new(),
+            20,
+            EngineOptions::default(),
+            &no_stop,
+        );
         let result = search(&mut board, &mut ctx);
         total_nodes += result.nodes;
         eprintln!(
@@ -750,8 +764,9 @@ fn try_null_move(
     ply: usize,
     static_eval: Score,
     squeeze_mode: bool,
+    suppress_in_squeeze: bool,
 ) -> Option<Score> {
-    if squeeze_mode || depth < NULL_MOVE_MIN_DEPTH || static_eval < beta {
+    if (squeeze_mode && suppress_in_squeeze) || depth < NULL_MOVE_MIN_DEPTH || static_eval < beta {
         return None;
     }
     let our_pieces = board.occ[board.side as usize]
@@ -854,7 +869,12 @@ fn score_single_move(
         s += 750_000;
     }
     s += ctx.history[scoring.us][move_from(m) as usize][move_to(m) as usize];
-    s += restriction_move_score(board, ctx, m, scoring.opponent_mobility_before);
+    if ctx.options.search.restriction_ordering {
+        s += scale_score(
+            restriction_move_score(board, ctx, m, scoring.opponent_mobility_before),
+            ctx.options.search.restriction_ordering_scale,
+        );
+    }
     s
 }
 
@@ -968,7 +988,13 @@ fn alpha_beta(
     }
 
     // Static evaluation for pruning heuristics
-    let static_eval = evaluate(board, &EvalContext { atk: ctx.atk });
+    let static_eval = evaluate(
+        board,
+        &EvalContext {
+            atk: ctx.atk,
+            options: ctx.options,
+        },
+    );
     if ply < 128 {
         ctx.stack[ply].static_eval = static_eval;
     }
@@ -996,9 +1022,16 @@ fn alpha_beta(
         }
 
         // Null move pruning — DISABLED in squeeze mode (critical Boa adaptation)
-        if let Some(null_score) =
-            try_null_move(board, ctx, beta, depth, ply, static_eval, squeeze_mode)
-        {
+        if let Some(null_score) = try_null_move(
+            board,
+            ctx,
+            beta,
+            depth,
+            ply,
+            static_eval,
+            squeeze_mode,
+            ctx.options.search.squeeze_null_move_suppression,
+        ) {
             ctx.history_hashes.pop();
             return null_score;
         }
@@ -1044,7 +1077,12 @@ fn alpha_beta(
         // endgames as draws (e.g. KQvK read as -contempt at depth 2+).
         let post_move_opponent_mobility = pre_move_opponent_mobility
             .map(|_| side_mobility_for_search(board, ctx.atk, board.side));
-        let squeeze_ext = if !is_capture && !is_promo && !in_check && ply < ply_limit {
+        let squeeze_ext = if ctx.options.search.squeeze_extensions
+            && !is_capture
+            && !is_promo
+            && !in_check
+            && ply < ply_limit
+        {
             match (pre_move_opponent_mobility, post_move_opponent_mobility) {
                 (Some(before), Some(after))
                     if should_extend_restriction(before, after, squeeze_mode) =>
@@ -1070,6 +1108,7 @@ fn alpha_beta(
                 gives_check,
                 in_check,
                 squeeze_mode,
+                squeeze_lmr_relief: ctx.options.search.squeeze_lmr_relief,
                 improving,
             },
             ctx,
@@ -1209,7 +1248,13 @@ fn quiescence(
 
     if board.is_in_check(board.side) {
         if qs_ply >= QS_CHECK_EVASION_MAX_PLY || ply >= MAX_PLY {
-            return evaluate(board, &EvalContext { atk: ctx.atk });
+            return evaluate(
+                board,
+                &EvalContext {
+                    atk: ctx.atk,
+                    options: ctx.options,
+                },
+            );
         }
 
         let mut list = gen_moves(board, ctx.atk);
@@ -1252,7 +1297,13 @@ fn quiescence(
 
     // Normal quiescence: captures only. In-check nodes are handled above with
     // a small evasion cap, because standing pat while in check is illegal.
-    let stand_pat = evaluate(board, &EvalContext { atk: ctx.atk });
+    let stand_pat = evaluate(
+        board,
+        &EvalContext {
+            atk: ctx.atk,
+            options: ctx.options,
+        },
+    );
     if stand_pat >= beta {
         return stand_pat;
     }
@@ -1600,7 +1651,7 @@ fn compute_lmr_reduction(input: LmrInput, ctx: &mut SearchContext) -> i32 {
     ctx.stats.lmr_attempts += 1;
     let mut base_r = lmr_reduction(input.depth, input.moves_searched);
     // Boa adaptation: reduce less in squeeze (positional grinding)
-    if input.squeeze_mode {
+    if input.squeeze_mode && input.squeeze_lmr_relief {
         base_r = (base_r - 1).max(0);
     }
     // When position is not improving, search less deeply (SF-style)
@@ -1649,7 +1700,16 @@ mod tests {
         limits: Limits,
         stop: &'a AtomicBool,
     ) -> SearchContext<'a> {
-        SearchContext::new(atk, z, tt, limits, Vec::new(), 0, stop)
+        SearchContext::new(
+            atk,
+            z,
+            tt,
+            limits,
+            Vec::new(),
+            0,
+            EngineOptions::default(),
+            stop,
+        )
     }
 
     #[test]

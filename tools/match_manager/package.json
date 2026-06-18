@@ -5,13 +5,15 @@
   "type": "module",
   "bin": {
     "match-manager": "dist/cli.js",
-    "boa-match-manager": "dist/cli.js"
+    "boa-match-manager": "dist/cli.js",
+    "boa-ablate": "dist/ablation.js"
   },
   "main": "dist/cli.js",
   "scripts": {
     "build": "tsc",
     "start": "node dist/cli.js",
     "dev": "tsx src/cli.tsx",
+    "ablate": "tsx src/ablation.ts",
     "check": "tsc --noEmit"
   },
   "keywords": [],
