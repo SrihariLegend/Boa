@@ -254,6 +254,62 @@ tuned as Black: 339 - 473 - 124 [0.428]
 Do not ship that scale set as defaults. Treat GM-outcome tuning as a diagnostic
 fit, not a strength proxy.
 
+## Internal-Weight Texel Tuning
+
+Path: `tools/texel_tune_internal.py`
+
+This tuner consumes the self-play CSV from `tools/self_play_dataset.mjs` and
+fits internal eval constants directly. It decomposes FENs into sparse
+coefficients for the current non-PST eval terms:
+
+- mobility and activity tables
+- pawn structure and passed-pawn terms
+- king safety
+- freedom/squeeze terms
+- trade-down, weak-square, coordination, and advanced-pawn terms
+
+Run a constrained smoke fit for one group:
+
+```sh
+python3 tools/texel_tune_internal.py \
+  analysis/self_play/texel_self_play.csv \
+  --groups mobility \
+  --limit 2000 \
+  --steps 4,2 \
+  --passes 1
+```
+
+Run a larger constrained fit for one group:
+
+```sh
+python3 tools/texel_tune_internal.py \
+  analysis/self_play/texel_self_play.csv \
+  --groups mobility \
+  --limit 100000 \
+  --steps 8,4,2,1 \
+  --passes 2 \
+  > analysis/self_play/internal_tune_mobility.txt
+```
+
+The script prints reconstruction error for its internal model. Mean absolute
+error should stay near centipawn rounding noise before the tuned values are
+trusted. Treat the emitted Rust replacements as a candidate report, not as
+ship-ready eval defaults.
+
+By default the internal tuner now uses:
+
+- an L2 prior around current constants (`--l2`)
+- a deterministic train/validation split (`--validation-fraction`)
+- a bounded parameter window (`--max-delta`)
+- semantic and monotonic constraints
+- a validation gate that rejects updates unless holdout MSE improves
+
+Prefer group-by-group fits (`--groups mobility`, `--groups pawn`, etc.) and
+validate each candidate with SPRT or a non-regression match before landing it in
+`eval.rs`. Use `--no-constraints` and `--no-validation-gate` only for diagnostics;
+unconstrained full-table result-label fits have already failed transfer to
+playing strength.
+
 ## Self-Play Texel Dataset
 
 Path: `tools/self_play_dataset.mjs`
