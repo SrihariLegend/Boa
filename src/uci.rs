@@ -290,21 +290,34 @@ pub fn run() {
 }
 
 fn print_engine_options() {
-    println!("option name Search Restriction Ordering Scale type spin default 100 min 0 max 300");
+    let defaults = EngineOptions::default();
+    println!(
+        "option name Search Restriction Ordering Scale type spin default {} min 0 max 300",
+        defaults.search.restriction_ordering_scale
+    );
 
-    for name in [
-        "Eval Material Scale",
-        "Eval PST Scale",
-        "Eval Mobility Scale",
-        "Eval Pawn Structure Scale",
-        "Eval King Safety Scale",
-        "Eval Freedom Scale",
-        "Eval Trade Down Scale",
-        "Eval Weak Squares Scale",
-        "Eval Coordination Scale",
-        "Eval Advanced Pawns Scale",
+    for (name, default) in [
+        ("Eval Material Scale", defaults.eval.material_scale),
+        ("Eval PST Scale", defaults.eval.pst_scale),
+        ("Eval Mobility Scale", defaults.eval.mobility_scale),
+        (
+            "Eval Pawn Structure Scale",
+            defaults.eval.pawn_structure_scale,
+        ),
+        ("Eval King Safety Scale", defaults.eval.king_safety_scale),
+        ("Eval Freedom Scale", defaults.eval.freedom_scale),
+        ("Eval Trade Down Scale", defaults.eval.trade_down_scale),
+        ("Eval Weak Squares Scale", defaults.eval.weak_squares_scale),
+        ("Eval Coordination Scale", defaults.eval.coordination_scale),
+        (
+            "Eval Advanced Pawns Scale",
+            defaults.eval.advanced_pawns_scale,
+        ),
     ] {
-        println!("option name {} type spin default 100 min 0 max 300", name);
+        println!(
+            "option name {} type spin default {} min 0 max 300",
+            name, default
+        );
     }
     for name in [
         "Search Restriction Ordering",
