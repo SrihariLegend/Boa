@@ -324,7 +324,7 @@ struct LmrInput {
 pub struct SearchContext<'a> {
     pub atk: &'a AttackTables,
     pub z: &'a Zobrist,
-    pub tt: &'a mut TranspositionTable,
+    pub tt: &'a TranspositionTable,
     pub limits: Limits,
     pub start_ms: u64,
     pub contempt: i32,
@@ -343,6 +343,7 @@ pub struct SearchContext<'a> {
     pub nodes: u64,
     pub stopped: bool,
     pub root_depth: i32, // Current iteration depth (for check extension cap)
+    smp_worker_id: usize,
 
     // Killer moves: [ply][slot]
     pub killers: [[Move; 2]; 128],
@@ -373,7 +374,7 @@ impl<'a> SearchContext<'a> {
     pub fn new(
         atk: &'a AttackTables,
         z: &'a Zobrist,
-        tt: &'a mut TranspositionTable,
+        tt: &'a TranspositionTable,
         limits: Limits,
         history_hashes: Vec<u64>,
         contempt: i32,
@@ -388,6 +389,7 @@ impl<'a> SearchContext<'a> {
             stop_flag,
             start_ms: now_ms(),
             root_depth: 0,
+            smp_worker_id: 0,
             contempt,
             options,
             root_color: Color::White, // set by search() before iterating
@@ -556,7 +558,68 @@ pub fn bench(atk: &AttackTables, z: &Zobrist, depth: u32) {
 // ============================================================
 
 pub fn search(board: &mut Board, ctx: &mut SearchContext) -> SearchResult {
+    let threads = ctx.options.search.threads.clamp(1, 64);
+    if ctx.options.search.lazy_smp && threads > 1 && ctx.limits.nodes == 0 {
+        return lazy_smp_search(board, ctx, threads);
+    }
+    search_single(board, ctx, true, true)
+}
+
+fn lazy_smp_search(board: &mut Board, ctx: &mut SearchContext, threads: usize) -> SearchResult {
     ctx.tt.new_search();
+
+    let atk = ctx.atk;
+    let z = ctx.z;
+    let tt = ctx.tt;
+    let limits = ctx.limits;
+    let history = ctx.history_hashes.clone();
+    let contempt = ctx.contempt;
+    let stop_flag = ctx.stop_flag;
+    let mut worker_options = ctx.options;
+    worker_options.search.threads = 1;
+
+    std::thread::scope(|scope| {
+        let mut handles = Vec::with_capacity(threads.saturating_sub(1));
+        for worker_id in 1..threads {
+            let mut worker_board = board.clone();
+            let worker_history = history.clone();
+            handles.push(scope.spawn(move || {
+                let mut worker_ctx = SearchContext::new(
+                    atk,
+                    z,
+                    tt,
+                    limits,
+                    worker_history,
+                    contempt,
+                    worker_options,
+                    stop_flag,
+                );
+                worker_ctx.smp_worker_id = worker_id;
+                search_single(&mut worker_board, &mut worker_ctx, false, false)
+            }));
+        }
+
+        let mut result = search_single(board, ctx, true, false);
+        stop_flag.store(true, std::sync::atomic::Ordering::Relaxed);
+
+        for handle in handles {
+            if let Ok(worker_result) = handle.join() {
+                result.nodes += worker_result.nodes;
+            }
+        }
+        result
+    })
+}
+
+fn search_single(
+    board: &mut Board,
+    ctx: &mut SearchContext,
+    emit_info: bool,
+    advance_tt_age: bool,
+) -> SearchResult {
+    if advance_tt_age {
+        ctx.tt.new_search();
+    }
     ctx.nodes = 0;
     ctx.stopped = false;
     ctx.stats = SearchStats::default();
@@ -601,17 +664,19 @@ pub fn search(board: &mut Board, ctx: &mut SearchContext) -> SearchResult {
             format!("cp {}", score)
         };
         let pv_str: String = pv.iter().map(|&m| move_name(m) + " ").collect();
-        println!(
-            "info depth {} score {} nodes {} nps {} time {} hashfull {} pv {}",
-            depth,
-            score_str,
-            ctx.nodes,
-            nps,
-            elapsed,
-            ctx.tt.hashfull(),
-            pv_str.trim()
-        );
-        let _ = std::io::Write::flush(&mut std::io::stdout());
+        if emit_info {
+            println!(
+                "info depth {} score {} nodes {} nps {} time {} hashfull {} pv {}",
+                depth,
+                score_str,
+                ctx.nodes,
+                nps,
+                elapsed,
+                ctx.tt.hashfull(),
+                pv_str.trim()
+            );
+            let _ = std::io::Write::flush(&mut std::io::stdout());
+        }
         completed_depth = depth;
 
         // Time management: stop if we've used our soft budget
@@ -1040,6 +1105,10 @@ fn alpha_beta(
     // Generate and order moves
     let mut list = gen_moves(board, ctx.atk);
     score_moves(board, ctx, &mut list, tt_move, ply, depth);
+    if ply == 0 && ctx.smp_worker_id > 0 && list.count > 1 {
+        let idx = ctx.smp_worker_id % list.count;
+        list.scores[idx] += 3_000_000;
+    }
 
     let mut best_move = MOVE_NONE;
     let mut best_score = -SCORE_INF;
@@ -1333,17 +1402,19 @@ fn quiescence(
             continue;
         }
 
-        let see = static_exchange_eval(board, ctx.atk, m);
-        if see > 0 {
-            ctx.stats.see_win_caps += 1;
-        } else if see == 0 {
-            ctx.stats.see_equal_caps += 1;
-        } else {
-            ctx.stats.see_loss_caps += 1;
-            if move_flags(m) != MF_PROMOTION {
-                continue;
+        if ctx.options.search.see && ctx.options.search.see_qsearch_pruning {
+            let see = static_exchange_eval(board, ctx.atk, m);
+            if see > 0 {
+                ctx.stats.see_win_caps += 1;
+            } else if see == 0 {
+                ctx.stats.see_equal_caps += 1;
+            } else {
+                ctx.stats.see_loss_caps += 1;
+                if move_flags(m) != MF_PROMOTION {
+                    continue;
+                }
+                ctx.stats.see_loss_searched += 1;
             }
-            ctx.stats.see_loss_searched += 1;
         }
 
         let undo = board.make_move(m, ctx.z);
@@ -1426,7 +1497,11 @@ fn score_captures(board: &Board, ctx: &SearchContext, list: &mut MoveList) {
         };
         let to = move_to(m) as usize;
         let ch = ctx.cap_history[us][mover_pt][to][cap_pt] / CAP_HISTORY_DIVISOR;
-        let see = static_exchange_eval(board, ctx.atk, m);
+        let see = if ctx.options.search.see && ctx.options.search.see_capture_ordering {
+            static_exchange_eval(board, ctx.atk, m)
+        } else {
+            0
+        };
         list.scores[i] = see * 16 + cap_val * 10 - mov_val + ch;
     }
 }

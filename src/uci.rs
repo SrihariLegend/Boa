@@ -105,7 +105,7 @@ struct GoContext<'a> {
     position_history: &'a [u64],
     atk: &'a AttackTables,
     z: &'a Zobrist,
-    tt: &'a mut TranspositionTable,
+    tt: &'a TranspositionTable,
     contempt: i32,
     options: EngineOptions,
     stop_flag: &'a std::sync::atomic::AtomicBool,
@@ -218,6 +218,7 @@ pub fn run() {
                 println!("id name Boa v2.0");
                 println!("id author Dirac");
                 println!("option name Hash type spin default 128 min 1 max 4096");
+                println!("option name Threads type spin default 1 min 1 max 64");
                 println!("option name Contempt type spin default 20 min -100 max 100");
                 print_engine_options();
                 println!("uciok");
@@ -247,7 +248,7 @@ pub fn run() {
                         position_history: &position_history,
                         atk: &atk,
                         z: &z,
-                        tt: &mut tt,
+                        tt: &tt,
                         contempt,
                         options,
                         stop_flag: &stop_flag,
@@ -320,6 +321,10 @@ fn print_engine_options() {
         );
     }
     for name in [
+        "Search Lazy SMP",
+        "Search SEE",
+        "Search SEE QSearch Pruning",
+        "Search SEE Capture Ordering",
         "Search Restriction Ordering",
         "Search Squeeze Extensions",
         "Search Squeeze Null Move Suppression",

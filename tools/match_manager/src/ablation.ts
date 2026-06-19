@@ -76,6 +76,30 @@ const ABLATIONS: Ablation[] = [
     reason: "advanced pawn eval",
   },
   {
+    name: "no_search_lazy_smp",
+    option: "Search Lazy SMP",
+    value: "false",
+    reason: "Lazy SMP worker search when Threads is greater than 1",
+  },
+  {
+    name: "no_search_see",
+    option: "Search SEE",
+    value: "false",
+    reason: "all static exchange evaluation search uses",
+  },
+  {
+    name: "no_search_see_qsearch_pruning",
+    option: "Search SEE QSearch Pruning",
+    value: "false",
+    reason: "SEE-based pruning of losing captures in qsearch",
+  },
+  {
+    name: "no_search_see_capture_ordering",
+    option: "Search SEE Capture Ordering",
+    value: "false",
+    reason: "SEE contribution to capture move ordering",
+  },
+  {
     name: "no_search_restriction_ordering",
     option: "Search Restriction Ordering",
     value: "false",

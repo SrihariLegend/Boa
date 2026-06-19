@@ -24,6 +24,11 @@ pub struct EvalOptions {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SearchOptions {
+    pub threads: usize,
+    pub lazy_smp: bool,
+    pub see: bool,
+    pub see_qsearch_pruning: bool,
+    pub see_capture_ordering: bool,
     pub restriction_ordering: bool,
     pub restriction_ordering_scale: i32,
     pub squeeze_extensions: bool,
@@ -60,6 +65,11 @@ impl Default for EvalOptions {
 impl Default for SearchOptions {
     fn default() -> Self {
         SearchOptions {
+            threads: 1,
+            lazy_smp: true,
+            see: true,
+            see_qsearch_pruning: true,
+            see_capture_ordering: true,
             restriction_ordering: true,
             restriction_ordering_scale: 100,
             squeeze_extensions: true,
@@ -73,6 +83,8 @@ impl EngineOptions {
     pub fn set_uci_option(&mut self, name: &str, value: &str) -> bool {
         let key = normalize_option_name(name);
         match key.as_str() {
+            "threads" | "searchthreads" => set_threads(&mut self.search.threads, value),
+            "searchlazysmp" => set_bool(&mut self.search.lazy_smp, value),
             "evalmaterialscale" => set_scale(&mut self.eval.material_scale, value),
             "evalpstscale" => set_scale(&mut self.eval.pst_scale, value),
             "evalmobilityscale" => set_scale(&mut self.eval.mobility_scale, value),
@@ -83,6 +95,9 @@ impl EngineOptions {
             "evalweaksquaresscale" => set_scale(&mut self.eval.weak_squares_scale, value),
             "evalcoordinationscale" => set_scale(&mut self.eval.coordination_scale, value),
             "evaladvancedpawnsscale" => set_scale(&mut self.eval.advanced_pawns_scale, value),
+            "searchsee" => set_bool(&mut self.search.see, value),
+            "searchseeqsearchpruning" => set_bool(&mut self.search.see_qsearch_pruning, value),
+            "searchseecaptureordering" => set_bool(&mut self.search.see_capture_ordering, value),
             "searchrestrictionordering" => set_bool(&mut self.search.restriction_ordering, value),
             "searchrestrictionorderingscale" => {
                 set_scale(&mut self.search.restriction_ordering_scale, value)
@@ -109,6 +124,14 @@ fn set_scale(target: &mut i32, value: &str) -> bool {
         return false;
     };
     *target = scale.clamp(0, 300);
+    true
+}
+
+fn set_threads(target: &mut usize, value: &str) -> bool {
+    let Ok(threads) = value.parse::<usize>() else {
+        return false;
+    };
+    *target = threads.clamp(1, 64);
     true
 }
 
@@ -145,8 +168,20 @@ mod tests {
         assert!(options.set_uci_option("Eval Freedom Scale", "0"));
         assert_eq!(options.eval.freedom_scale, 0);
 
+        assert!(options.set_uci_option("Threads", "4"));
+        assert_eq!(options.search.threads, 4);
+
+        assert!(options.set_uci_option("Search Lazy SMP", "false"));
+        assert!(!options.search.lazy_smp);
+
         assert!(options.set_uci_option("search-squeeze-null-move-suppression", "false"));
         assert!(!options.search.squeeze_null_move_suppression);
+
+        assert!(options.set_uci_option("Search SEE QSearch Pruning", "false"));
+        assert!(!options.search.see_qsearch_pruning);
+
+        assert!(options.set_uci_option("Search SEE Capture Ordering", "false"));
+        assert!(!options.search.see_capture_ordering);
 
         assert!(options.set_uci_option("Search Restriction Ordering Scale", "50"));
         assert_eq!(options.search.restriction_ordering_scale, 50);
