@@ -66,7 +66,7 @@ const DOUBLED_PAWN_PENALTY: (i32, i32) = (-13, 0);
 
 /// Isolated pawn penalty (mg, eg). No friendly pawns on adjacent files.
 /// SF: ~-10/-20. CPW: -15 to -25. [NEEDS TUNING]
-const ISOLATED_PAWN_PENALTY: (i32, i32) = (-15, -40);
+const ISOLATED_PAWN_PENALTY: (i32, i32) = (-13, -38);
 
 /// Backward pawn penalty (mg, eg). Pawn on starting rank with no adjacent support.
 /// Less studied than isolated. SF has complex backward pawn logic. [NEEDS TUNING]
@@ -116,12 +116,12 @@ const SQUEEZE_TOTAL_LOCKDOWN: i32 = 80; // 0 moves
 const SQUEEZE_SEVERE_BASE: i32 = 20; // 1-5 moves: 60 + (5-mob)*4
 const SQUEEZE_SEVERE_PER_MOVE: i32 = 4;
 const SQUEEZE_MODERATE_BASE: i32 = 10; // 6-15 moves: 30 + (15-mob)*3
-const SQUEEZE_MODERATE_PER_MOVE: i32 = 1;
+const SQUEEZE_MODERATE_PER_MOVE: i32 = 2;
 
 /// Trade-down bonus: when ahead in material, reward exchanging pieces.
 /// Boa would grind down into won endgames by simplifying.
 /// Bonus per centipawn of material advantage, scaled by pieces traded. [NEEDS TUNING]
-const TRADE_DOWN_BONUS_PER_100CP: i32 = 15;
+const TRADE_DOWN_BONUS_PER_100CP: i32 = 17;
 
 /// Rook behind passed pawn bonus. Rooks belong behind passers (Tarrasch rule).
 /// Applies to both own and enemy passed pawns. [NEEDS TUNING]
@@ -145,12 +145,12 @@ const PASSER_KING_PROXIMITY_EG: i32 = 15;
 
 /// Passed pawn enemy king distance bonus: bonus when enemy king is far from passer.
 /// Endgame only, per rank of distance. [NEEDS TUNING]
-const PASSER_ENEMY_KING_DIST_EG: i32 = 10;
+const PASSER_ENEMY_KING_DIST_EG: i32 = 11;
 
 /// Weak square bonus: reward for controlling holes in opponent's pawn structure.
 /// A "hole" is a square that can never be defended by enemy pawns.
 /// Boa was the supreme exploiter of weak-square complexes. [NEEDS TUNING]
-const WEAK_SQUARE_CONTROL_BONUS: (i32, i32) = (1, 1);
+const WEAK_SQUARE_CONTROL_BONUS: (i32, i32) = (0, 1);
 
 /// Weak square occupation bonus: knight on a hole is especially strong.
 /// SF: outpost bonuses are 30-50. This is specifically for holes. [NEEDS TUNING]
@@ -184,12 +184,12 @@ const QUADRANT_SPREAD_BONUS: (i32, i32) = (9, 11);
 
 /// Extended center attack: bonus per square attacked in extended center (c3-f6).
 /// Effect size +0.243 — controlling the extended center matters. [NEEDS TUNING]
-const EXTENDED_CENTER_ATTACK_BONUS: (i32, i32) = (0, 5);
+const EXTENDED_CENTER_ATTACK_BONUS: (i32, i32) = (0, 6);
 
 /// Advanced pawn bonus: extra reward for pawns past the 4th rank.
 /// Effect size +0.328 — advanced pawns are strong. [NEEDS TUNING]
 /// Per pawn on rank 5/6/7 (relative to color).
-const ADVANCED_PAWN_BONUS_MG: [i32; 3] = [7, 15, 30]; // rank 5, 6, 7
+const ADVANCED_PAWN_BONUS_MG: [i32; 3] = [6, 15, 30]; // rank 5, 6, 7
 const ADVANCED_PAWN_BONUS_EG: [i32; 3] = [2, 8, 35];
 
 // ============================================================

@@ -25,10 +25,6 @@ DEFAULT_FEATURES = [
 ]
 
 DEFAULT_ZERO_FEATURES = [
-    "freedom_cp",
-    "weak_squares_cp",
-    "coordination_cp",
-    "advanced_pawns_cp",
 ]
 
 UCI_OPTION_BY_FEATURE = {
@@ -50,6 +46,14 @@ class Dataset:
     features: list[str]
     rows: list[list[float]]
     labels: list[float]
+
+
+@dataclass
+class TuneResult:
+    scales: list[int]
+    train_mse: float
+    validation_mse: float | None
+    accepted: bool
 
 
 def parse_args() -> argparse.Namespace:
@@ -79,6 +83,29 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--min-scale", type=int, default=0)
     parser.add_argument("--max-scale", type=int, default=300)
+    parser.add_argument(
+        "--max-delta",
+        type=int,
+        default=300,
+        help="Maximum scale movement from --initial-scale. Default: unconstrained.",
+    )
+    parser.add_argument(
+        "--l2",
+        type=float,
+        default=0.0,
+        help="L2 penalty per squared scale point away from --initial-scale.",
+    )
+    parser.add_argument(
+        "--validation-fraction",
+        type=float,
+        default=0.2,
+        help="Fraction of rows reserved for deterministic validation. Default: 0.2.",
+    )
+    parser.add_argument(
+        "--no-validation-gate",
+        action="store_true",
+        help="Allow printing tuned scales even if holdout MSE does not improve.",
+    )
     parser.add_argument(
         "--initial-scale",
         type=int,
@@ -145,6 +172,35 @@ def read_dataset(path: str, features: list[str], limit: int) -> Dataset:
     return Dataset(features=features, rows=rows, labels=labels)
 
 
+def split_dataset(dataset: Dataset, validation_fraction: float) -> tuple[Dataset, Dataset | None]:
+    if validation_fraction <= 0.0:
+        return dataset, None
+    if validation_fraction >= 0.5:
+        raise SystemExit("--validation-fraction must be less than 0.5")
+
+    validation_every = max(2, round(1.0 / validation_fraction))
+    train_rows: list[list[float]] = []
+    train_labels: list[float] = []
+    validation_rows: list[list[float]] = []
+    validation_labels: list[float] = []
+
+    for index, (row, label) in enumerate(zip(dataset.rows, dataset.labels)):
+        if index % validation_every == 0:
+            validation_rows.append(row)
+            validation_labels.append(label)
+            continue
+        train_rows.append(row)
+        train_labels.append(label)
+
+    if not train_rows or not validation_rows:
+        raise SystemExit("Validation split produced an empty train or validation set.")
+
+    return (
+        Dataset(features=dataset.features, rows=train_rows, labels=train_labels),
+        Dataset(features=dataset.features, rows=validation_rows, labels=validation_labels),
+    )
+
+
 def sigmoid(k: float, cp: float) -> float:
     x = max(-60.0, min(60.0, k * cp))
     return 1.0 / (1.0 + math.exp(-x))
@@ -171,37 +227,68 @@ def shifted_evals(dataset: Dataset, evals: list[float], index: int, delta_scale:
     return [cp + row[index] * factor for cp, row in zip(evals, dataset.rows)]
 
 
-def tune(dataset: Dataset, args: argparse.Namespace) -> tuple[list[int], float]:
+def objective(labels: list[float], evals: list[float], scales: list[int], args: argparse.Namespace) -> float:
+    penalty = args.l2 * sum((scale - args.initial_scale) ** 2 for scale in scales)
+    return mse(labels, evals, args.k) + penalty
+
+
+def tune(
+    train: Dataset,
+    validation: Dataset | None,
+    args: argparse.Namespace,
+) -> TuneResult:
     steps = [int(step) for step in split_csv_arg(args.steps)]
-    scales = [args.initial_scale for _ in dataset.features]
-    evals = initial_evals(dataset, scales)
-    best = mse(dataset.labels, evals, args.k)
+    lower = max(args.min_scale, args.initial_scale - args.max_delta)
+    upper = min(args.max_scale, args.initial_scale + args.max_delta)
+    scales = [args.initial_scale for _ in train.features]
+    evals = initial_evals(train, scales)
+    best = objective(train.labels, evals, scales, args)
 
     for step in steps:
         improved = True
         while improved:
             improved = False
-            for index, _feature in enumerate(dataset.features):
+            for index, _feature in enumerate(train.features):
                 current_scale = scales[index]
                 best_candidate = (best, current_scale, evals)
                 for direction in (1, -1):
                     candidate_scale = max(
-                        args.min_scale,
-                        min(args.max_scale, current_scale + direction * step),
+                        lower,
+                        min(upper, current_scale + direction * step),
                     )
                     if candidate_scale == current_scale:
                         continue
+                    candidate_scales = scales.copy()
+                    candidate_scales[index] = candidate_scale
                     candidate_evals = shifted_evals(
-                        dataset, evals, index, candidate_scale - current_scale
+                        train, evals, index, candidate_scale - current_scale
                     )
-                    candidate_error = mse(dataset.labels, candidate_evals, args.k)
+                    candidate_error = objective(train.labels, candidate_evals, candidate_scales, args)
                     if candidate_error < best_candidate[0]:
                         best_candidate = (candidate_error, candidate_scale, candidate_evals)
 
                 if best_candidate[1] != current_scale:
                     best, scales[index], evals = best_candidate
                     improved = True
-    return scales, best
+
+    train_mse = mse(train.labels, evals, args.k)
+    validation_mse = None
+    accepted = True
+    if validation is not None:
+        initial_scales = [args.initial_scale for _ in validation.features]
+        initial_validation_mse = mse(
+            validation.labels,
+            initial_evals(validation, initial_scales),
+            args.k,
+        )
+        validation_mse = mse(validation.labels, initial_evals(validation, scales), args.k)
+        accepted = validation_mse < initial_validation_mse or args.no_validation_gate
+        if not accepted:
+            scales = [args.initial_scale for _ in train.features]
+            train_mse = mse(train.labels, initial_evals(train, scales), args.k)
+            validation_mse = initial_validation_mse
+
+    return TuneResult(scales=scales, train_mse=train_mse, validation_mse=validation_mse, accepted=accepted)
 
 
 def print_recommendations(features: list[str], scales: list[int], zero_features: list[str]) -> None:
@@ -219,19 +306,38 @@ def main() -> None:
     features = split_csv_arg(args.features)
     zero_features = split_csv_arg(args.zero_features)
     dataset = read_dataset(args.csv_path, features, args.limit)
-    initial_scales = [args.initial_scale for _ in dataset.features]
-    initial_error = mse(dataset.labels, initial_evals(dataset, initial_scales), args.k)
-    scales, best = tune(dataset, args)
+    train, validation = split_dataset(dataset, args.validation_fraction)
+    initial_scales = [args.initial_scale for _ in train.features]
+    initial_train_mse = mse(train.labels, initial_evals(train, initial_scales), args.k)
+    initial_validation_mse = None
+    if validation is not None:
+        initial_validation_mse = mse(
+            validation.labels,
+            initial_evals(validation, initial_scales),
+            args.k,
+        )
+    result = tune(train, validation, args)
 
     print(f"rows={len(dataset.rows)}")
+    print(f"train_rows={len(train.rows)}")
+    if validation is not None:
+        print(f"validation_rows={len(validation.rows)}")
     print(f"k={args.k}")
-    print(f"initial_mse={initial_error:.8f}")
-    print(f"best_mse={best:.8f}")
-    print(f"delta_mse={initial_error - best:.8f}")
+    print(f"l2={args.l2}")
+    print(f"max_delta={args.max_delta}")
+    print(f"validation_gate={not args.no_validation_gate}")
+    print(f"accepted={result.accepted}")
+    print(f"initial_train_mse={initial_train_mse:.8f}")
+    print(f"best_train_mse={result.train_mse:.8f}")
+    print(f"delta_train_mse={initial_train_mse - result.train_mse:.8f}")
+    if initial_validation_mse is not None and result.validation_mse is not None:
+        print(f"initial_validation_mse={initial_validation_mse:.8f}")
+        print(f"best_validation_mse={result.validation_mse:.8f}")
+        print(f"delta_validation_mse={initial_validation_mse - result.validation_mse:.8f}")
     print("\nTuned scales:")
-    for feature, scale in zip(features, scales):
+    for feature, scale in zip(features, result.scales):
         print(f"{feature},{scale}")
-    print_recommendations(features, scales, zero_features)
+    print_recommendations(features, result.scales, zero_features)
 
 
 if __name__ == "__main__":

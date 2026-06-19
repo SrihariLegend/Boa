@@ -43,15 +43,15 @@ impl Default for EngineOptions {
 impl Default for EvalOptions {
     fn default() -> Self {
         EvalOptions {
-            material_scale: 100,
-            pst_scale: 100,
-            mobility_scale: 100,
-            pawn_structure_scale: 100,
-            king_safety_scale: 100,
-            freedom_scale: 100,
-            trade_down_scale: 100,
+            material_scale: 108,
+            pst_scale: 101,
+            mobility_scale: 103,
+            pawn_structure_scale: 98,
+            king_safety_scale: 101,
+            freedom_scale: 101,
+            trade_down_scale: 102,
             weak_squares_scale: 100,
-            coordination_scale: 100,
+            coordination_scale: 101,
             advanced_pawns_scale: 100,
         }
     }
