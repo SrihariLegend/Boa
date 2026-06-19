@@ -66,7 +66,7 @@ const DOUBLED_PAWN_PENALTY: (i32, i32) = (-13, 0);
 
 /// Isolated pawn penalty (mg, eg). No friendly pawns on adjacent files.
 /// SF: ~-10/-20. CPW: -15 to -25. [NEEDS TUNING]
-const ISOLATED_PAWN_PENALTY: (i32, i32) = (-15, -40);
+const ISOLATED_PAWN_PENALTY: (i32, i32) = (-13, -38);
 
 /// Backward pawn penalty (mg, eg). Pawn on starting rank with no adjacent support.
 /// Less studied than isolated. SF has complex backward pawn logic. [NEEDS TUNING]
@@ -116,12 +116,12 @@ const SQUEEZE_TOTAL_LOCKDOWN: i32 = 80; // 0 moves
 const SQUEEZE_SEVERE_BASE: i32 = 20; // 1-5 moves: 60 + (5-mob)*4
 const SQUEEZE_SEVERE_PER_MOVE: i32 = 4;
 const SQUEEZE_MODERATE_BASE: i32 = 10; // 6-15 moves: 30 + (15-mob)*3
-const SQUEEZE_MODERATE_PER_MOVE: i32 = 1;
+const SQUEEZE_MODERATE_PER_MOVE: i32 = 2;
 
 /// Trade-down bonus: when ahead in material, reward exchanging pieces.
 /// Boa would grind down into won endgames by simplifying.
 /// Bonus per centipawn of material advantage, scaled by pieces traded. [NEEDS TUNING]
-const TRADE_DOWN_BONUS_PER_100CP: i32 = 15;
+const TRADE_DOWN_BONUS_PER_100CP: i32 = 17;
 
 /// Rook behind passed pawn bonus. Rooks belong behind passers (Tarrasch rule).
 /// Applies to both own and enemy passed pawns. [NEEDS TUNING]
@@ -145,12 +145,12 @@ const PASSER_KING_PROXIMITY_EG: i32 = 15;
 
 /// Passed pawn enemy king distance bonus: bonus when enemy king is far from passer.
 /// Endgame only, per rank of distance. [NEEDS TUNING]
-const PASSER_ENEMY_KING_DIST_EG: i32 = 10;
+const PASSER_ENEMY_KING_DIST_EG: i32 = 11;
 
 /// Weak square bonus: reward for controlling holes in opponent's pawn structure.
 /// A "hole" is a square that can never be defended by enemy pawns.
 /// Boa was the supreme exploiter of weak-square complexes. [NEEDS TUNING]
-const WEAK_SQUARE_CONTROL_BONUS: (i32, i32) = (1, 1);
+const WEAK_SQUARE_CONTROL_BONUS: (i32, i32) = (0, 1);
 
 /// Weak square occupation bonus: knight on a hole is especially strong.
 /// SF: outpost bonuses are 30-50. This is specifically for holes. [NEEDS TUNING]
@@ -184,12 +184,12 @@ const QUADRANT_SPREAD_BONUS: (i32, i32) = (9, 11);
 
 /// Extended center attack: bonus per square attacked in extended center (c3-f6).
 /// Effect size +0.243 — controlling the extended center matters. [NEEDS TUNING]
-const EXTENDED_CENTER_ATTACK_BONUS: (i32, i32) = (0, 5);
+const EXTENDED_CENTER_ATTACK_BONUS: (i32, i32) = (0, 6);
 
 /// Advanced pawn bonus: extra reward for pawns past the 4th rank.
 /// Effect size +0.328 — advanced pawns are strong. [NEEDS TUNING]
 /// Per pawn on rank 5/6/7 (relative to color).
-const ADVANCED_PAWN_BONUS_MG: [i32; 3] = [7, 15, 30]; // rank 5, 6, 7
+const ADVANCED_PAWN_BONUS_MG: [i32; 3] = [6, 15, 30]; // rank 5, 6, 7
 const ADVANCED_PAWN_BONUS_EG: [i32; 3] = [2, 8, 35];
 
 // ============================================================
@@ -201,25 +201,25 @@ type PstTable = [(i32, i32); 64];
 #[rustfmt::skip]
 const PST_PAWN: PstTable = [
     (0,0),(0,0),(0,0),(0,0),(0,0),(0,0),(0,0),(0,0),
-    (0,0),(0,0),(0,0),(0,0),(0,0),(0,0),(0,0),(0,0),
-    (5,5),(5,5),(10,10),(0,0),(0,0),(10,10),(5,5),(5,5),
-    (5,5),(10,10),(15,15),(25,25),(25,25),(15,15),(10,10),(5,5),
-    (10,10),(15,15),(20,20),(30,30),(30,30),(20,20),(15,15),(10,10),
-    (20,20),(25,25),(30,30),(35,35),(35,35),(30,30),(25,25),(20,20),
-    (40,50),(45,55),(45,55),(45,55),(45,55),(45,55),(45,55),(40,50),
+    (7,7),(-3,-5),(7,7),(-7,-7),(7,7),(7,-3),(7,-7),(-3,3),
+    (11,12),(4,3),(3,3),(7,7),(7,7),(12,3),(-2,-2),(12,10),
+    (12,12),(3,17),(22,20),(32,32),(18,19),(8,12),(3,17),(12,12),
+    (11,17),(8,10),(13,13),(29,23),(23,23),(13,13),(8,8),(17,17),
+    (27,27),(32,32),(23,37),(30,28),(28,28),(23,23),(32,27),(27,27),
+    (47,57),(52,62),(38,48),(38,62),(52,48),(52,62),(38,48),(33,57),
     (0,0),(0,0),(0,0),(0,0),(0,0),(0,0),(0,0),(0,0),
 ];
 
 #[rustfmt::skip]
 const PST_KNIGHT: PstTable = [
-    (-50,-30),(-40,-20),(-30,-10),(-30,-10),(-30,-10),(-30,-10),(-40,-20),(-50,-30),
-    (-40,-20),(-20, -5),  (0,  0),  (0,  0),  (0,  0),  (0,  0),(-20, -5),(-40,-20),
-    (-30,-10),  (0,  0),(10,  5),(15, 10),(15, 10),(10,  5),  (0,  0),(-30,-10),
-    (-30,-10),  (5,  5),(15, 10),(20, 15),(20, 15),(15, 10),  (5,  5),(-30,-10),
-    (-30,-10),  (0,  0),(15, 10),(20, 15),(20, 15),(15, 10),  (0,  0),(-30,-10),
-    (-30,-10),  (5,  5),(10,  5),(15, 10),(15, 10),(10,  5),  (5,  5),(-30,-10),
-    (-40,-20),(-20, -5),  (0,  0),  (5,  5),  (5,  5),  (0,  0),(-20, -5),(-40,-20),
-    (-50,-30),(-40,-20),(-30,-10),(-30,-10),(-30,-10),(-30,-10),(-40,-20),(-50,-30),
+    (-43,-23),(-33,-27),(-37,-17),(-37,-3),(-23,-17),(-37,-17),(-33,-13),(-43,-37),
+    (-33,-13),(-27,-12),(-7,-7),(7,-3),(7,7),(-7,-7),(-13,-2),(-47,-27),
+    (-37,-17),(-7,-7),(3,12),(14,3),(22,3),(3,-2),(7,-7),(-23,-3),
+    (-23,-17),(7,-2),(21,3),(13,8),(26,8),(13,3),(-2,-2),(-23,-17),
+    (-35,-3),(7,-7),(8,17),(13,8),(25,8),(8,17),(7,7),(-23,-3),
+    (-37,-17),(-2,-2),(17,-2),(22,17),(9,3),(17,-2),(12,12),(-23,-3),
+    (-33,-13),(-13,2),(7,-7),(12,12),(8,12),(7,-6),(-19,2),(-47,-27),
+    (-57,-37),(-33,-27),(-37,-3),(-37,-17),(-37,-17),(-37,-3),(-47,-27),(-57,-27),
 ];
 
 #[rustfmt::skip]

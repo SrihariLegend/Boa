@@ -254,6 +254,62 @@ tuned as Black: 339 - 473 - 124 [0.428]
 Do not ship that scale set as defaults. Treat GM-outcome tuning as a diagnostic
 fit, not a strength proxy.
 
+## Internal-Weight Texel Tuning
+
+Path: `tools/texel_tune_internal.py`
+
+This tuner consumes the self-play CSV from `tools/self_play_dataset.mjs` and
+fits internal eval constants directly. It decomposes FENs into sparse
+coefficients for the current non-PST eval terms:
+
+- mobility and activity tables
+- pawn structure and passed-pawn terms
+- king safety
+- freedom/squeeze terms
+- trade-down, weak-square, coordination, and advanced-pawn terms
+
+Run a constrained smoke fit for one group:
+
+```sh
+python3 tools/texel_tune_internal.py \
+  analysis/self_play/texel_self_play.csv \
+  --groups mobility \
+  --limit 2000 \
+  --steps 4,2 \
+  --passes 1
+```
+
+Run a larger constrained fit for one group:
+
+```sh
+python3 tools/texel_tune_internal.py \
+  analysis/self_play/texel_self_play.csv \
+  --groups mobility \
+  --limit 100000 \
+  --steps 8,4,2,1 \
+  --passes 2 \
+  > analysis/self_play/internal_tune_mobility.txt
+```
+
+The script prints reconstruction error for its internal model. Mean absolute
+error should stay near centipawn rounding noise before the tuned values are
+trusted. Treat the emitted Rust replacements as a candidate report, not as
+ship-ready eval defaults.
+
+By default the internal tuner now uses:
+
+- an L2 prior around current constants (`--l2`)
+- a deterministic train/validation split (`--validation-fraction`)
+- a bounded parameter window (`--max-delta`)
+- semantic and monotonic constraints
+- a validation gate that rejects updates unless holdout MSE improves
+
+Prefer group-by-group fits (`--groups mobility`, `--groups pawn`, etc.) and
+validate each candidate with SPRT or a non-regression match before landing it in
+`eval.rs`. Use `--no-constraints` and `--no-validation-gate` only for diagnostics;
+unconstrained full-table result-label fits have already failed transfer to
+playing strength.
+
 ## Self-Play Texel Dataset
 
 Path: `tools/self_play_dataset.mjs`
@@ -297,6 +353,55 @@ node tools/self_play_dataset.mjs \
   --quiet \
   --out analysis/self_play/texel_self_play.csv
 ```
+
+## Internal PST Tuning
+
+Path: `tools/texel_tune_pst.py`
+
+This is the first internal-weight tuning slice. It tunes only pawn and knight
+PST midgame/endgame entries while keeping the rest of the eval fixed. It uses
+the self-play CSV directly and treats `white_score_cp` as the fixed baseline,
+subtracting and replacing only the tuned PST contribution.
+
+Smoke run:
+
+```sh
+python3 tools/texel_tune_pst.py \
+  analysis/self_play/texel_self_play.csv \
+  --limit 5000 \
+  --steps 4,2 \
+  --passes 1
+```
+
+Full first-pass run:
+
+```sh
+python3 tools/texel_tune_pst.py \
+  analysis/self_play/texel_self_play.csv \
+  --steps 4,2,1 \
+  --passes 1 \
+  > analysis/self_play/pst_tune_self_play.txt
+```
+
+The first full run on 293,068 quiet self-play rows produced:
+
+```text
+initial_mse=0.16653538
+best_mse=0.16554868
+delta_mse=0.00098670
+```
+
+Validation against `origin/main` at `1+0.01`, 10,000 games:
+
+```text
+pst vs baseline: 4243 - 4110 - 1647 [0.507]
+Elo difference: +4.6 +/- 6.2
+LOS: 92.7%
+SPRT: llr 1.05, lbound -2.94, ubound 2.94
+```
+
+This did not cross the SPRT accept bound, but it was a non-regressing result
+for the first narrow internal-weight tuning slice.
 
 ## Player Style Probe
 
