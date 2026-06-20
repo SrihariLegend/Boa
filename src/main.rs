@@ -7,6 +7,7 @@ mod diagnostics;
 mod eval;
 mod movegen;
 mod search;
+mod syzygy;
 mod tt;
 mod types;
 mod uci;

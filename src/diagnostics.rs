@@ -126,7 +126,10 @@ pub fn extract_restriction_features(
     z: &Zobrist,
     options: EngineOptions,
 ) -> RestrictionFeatures {
-    let ctx = EvalContext { atk, options };
+    let ctx = EvalContext {
+        atk,
+        options: &options,
+    };
     let eval = evaluate_breakdown(board, &ctx);
     let white_breaks = count_pawn_breaks(board, atk, z, Color::White);
     let black_breaks = count_pawn_breaks(board, atk, z, Color::Black);
@@ -352,7 +355,7 @@ fn legal_moves_for_color(
 fn mobility_for(board: &Board, atk: &AttackTables, color: Color) -> u32 {
     let ctx = EvalContext {
         atk,
-        options: EngineOptions::default(),
+        options: &EngineOptions::default(),
     };
     side_mobility(board, &ctx, color)
 }

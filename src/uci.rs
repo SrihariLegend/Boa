@@ -7,6 +7,7 @@ use crate::config::EngineOptions;
 use crate::diagnostics::{extract_restriction_features, RestrictionFeatures};
 use crate::movegen::{perft, AttackTables};
 use crate::search::{search, Limits, SearchContext};
+use crate::syzygy::SyzygyTablebase;
 use crate::tt::TranspositionTable;
 use crate::types::*;
 use std::io::{self, BufRead, Write};
@@ -16,6 +17,7 @@ fn handle_setoption<'a>(
     tt: &mut TranspositionTable,
     contempt: &mut i32,
     options: &mut EngineOptions,
+    syzygy: &mut Option<SyzygyTablebase>,
 ) {
     let mut name_parts = Vec::new();
     let mut value_parts = Vec::new();
@@ -51,6 +53,27 @@ fn handle_setoption<'a>(
         }
         "contempt" => {
             *contempt = val.parse().unwrap_or(0);
+        }
+        "syzygypath" => {
+            options.syzygy.path = val.clone();
+            match SyzygyTablebase::load(&val) {
+                Ok(next) => {
+                    if let Some(tb) = next.as_ref() {
+                        println!(
+                            "info string loaded {} Syzygy files, max pieces {}",
+                            tb.file_count(),
+                            tb.max_pieces()
+                        );
+                    } else {
+                        println!("info string Syzygy disabled");
+                    }
+                    *syzygy = next;
+                }
+                Err(err) => {
+                    eprintln!("info string SyzygyPath error: {err}");
+                    *syzygy = None;
+                }
+            }
         }
         _ => {
             let _ = options.set_uci_option(&name, &val);
@@ -108,6 +131,7 @@ struct GoContext<'a> {
     tt: &'a TranspositionTable,
     contempt: i32,
     options: EngineOptions,
+    syzygy: Option<&'a SyzygyTablebase>,
     stop_flag: &'a std::sync::atomic::AtomicBool,
 }
 
@@ -161,6 +185,7 @@ fn handle_go<'a>(tokens: impl Iterator<Item = &'a str>, go: GoContext<'_>) {
         history_for_search,
         go.contempt,
         go.options,
+        go.syzygy,
         go.stop_flag,
     );
     let result = search(go.board, &mut ctx);
@@ -180,6 +205,7 @@ pub fn run() {
     let mut position_history: Vec<u64> = Vec::new();
     let mut contempt = 0i32;
     let mut options = EngineOptions::default();
+    let mut syzygy: Option<SyzygyTablebase> = None;
 
     // Input thread: the search blocks the main thread, so "stop"/"quit" must
     // be seen by a reader thread that flips the stop flag immediately.
@@ -215,11 +241,25 @@ pub fn run() {
         let mut tokens = line.split_whitespace();
         match tokens.next() {
             Some("uci") => {
+                let defaults = EngineOptions::default();
                 println!("id name Boa v2.0");
                 println!("id author Dirac");
                 println!("option name Hash type spin default 128 min 1 max 4096");
                 println!("option name Threads type spin default 1 min 1 max 64");
                 println!("option name Contempt type spin default 0 min -100 max 100");
+                println!("option name SyzygyPath type string default <empty>");
+                println!(
+                    "option name SyzygyProbeDepth type spin default {} min 0 max 64",
+                    defaults.syzygy.probe_depth
+                );
+                println!(
+                    "option name SyzygyProbeLimit type spin default {} min 0 max 6",
+                    defaults.syzygy.probe_limit
+                );
+                println!(
+                    "option name Syzygy50MoveRule type check default {}",
+                    defaults.syzygy.fifty_move_rule
+                );
                 print_engine_options();
                 println!("uciok");
                 let _ = io::stdout().flush();
@@ -234,7 +274,7 @@ pub fn run() {
                 tt.clear();
             }
             Some("setoption") => {
-                handle_setoption(tokens, &mut tt, &mut contempt, &mut options);
+                handle_setoption(tokens, &mut tt, &mut contempt, &mut options, &mut syzygy);
             }
             Some("position") => {
                 handle_position(tokens, &mut board, &mut position_history, &atk, &z);
@@ -250,7 +290,8 @@ pub fn run() {
                         z: &z,
                         tt: &tt,
                         contempt,
-                        options,
+                        options: options.clone(),
+                        syzygy: syzygy.as_ref(),
                         stop_flag: &stop_flag,
                     },
                 );
@@ -269,7 +310,13 @@ pub fn run() {
             }
             Some("eval") => {
                 use crate::eval::{evaluate, EvalContext};
-                let score = evaluate(&board, &EvalContext { atk: &atk, options });
+                let score = evaluate(
+                    &board,
+                    &EvalContext {
+                        atk: &atk,
+                        options: &options,
+                    },
+                );
                 println!("eval: {} cp (side to move)", score);
             }
             Some("restriction_features_header") => {
@@ -277,7 +324,7 @@ pub fn run() {
                 let _ = io::stdout().flush();
             }
             Some("restriction_features") => {
-                let features = extract_restriction_features(&board, &atk, &z, options);
+                let features = extract_restriction_features(&board, &atk, &z, options.clone());
                 println!("{}", features.to_csv_row());
                 let _ = io::stdout().flush();
             }
