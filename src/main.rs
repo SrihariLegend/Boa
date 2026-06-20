@@ -1,8 +1,5 @@
-// boa — a Boa-style chess engine
-// Architecture: Bitboard move generation → Alpha-Beta search with style-aware pruning → NNUE-ready evaluation
-//
-// Style philosophy: Hunt for positions where opponent freedom approaches zero.
-// Pattern: Restriction → Prophylaxis → Improvement → Near-zugzwang → Error → Conversion
+// boa - a UCI chess engine
+// Architecture: bitboard move generation, classical evaluation, and alpha-beta search.
 
 mod board;
 mod config;

@@ -4,8 +4,8 @@
 This tuner is intentionally separate from tools/texel_tune.py. The scale tuner
 fits coarse UCI component multipliers; this script decomposes the current eval
 into per-constant coefficients for mobility, pawn structure, king safety,
-freedom, weak squares, coordination, trade-down, and advanced pawns. Material
-and PST are left fixed.
+and closely related positional terms. Material, PST, and the removed flavor
+terms are left fixed.
 """
 
 from __future__ import annotations
@@ -20,13 +20,6 @@ FILES = [0x0101010101010101 << f for f in range(8)]
 RANKS = [0xFF << (8 * r) for r in range(8)]
 FILE_A = FILES[0]
 FILE_H = FILES[7]
-CENTER = (1 << 27) | (1 << 28) | (1 << 35) | (1 << 36)
-EXTENDED_CENTER = 0
-for _r in range(2, 6):
-    for _f in range(2, 6):
-        EXTENDED_CENTER |= 1 << (_r * 8 + _f)
-
-PIECE_VALUES = {"pawn": 100, "knight": 320, "bishop": 330, "rook": 500, "queen": 900, "king": 0}
 PIECE_KIND = {"P": "pawn", "N": "knight", "B": "bishop", "R": "rook", "Q": "queen", "K": "king"}
 
 
@@ -121,28 +114,6 @@ for i, value in enumerate([0, 20, 50, 80, 120, 170, 230]):
     add_param(f"KING_SAFETY_TABLE[{i}]", value, 0, 420, "king")
 add_param("KING_CENTRALIZATION_EG", 15, -30, 100, "king")
 
-add_param("SQUEEZE_TOTAL_LOCKDOWN", 80, 0, 240, "freedom")
-add_param("SQUEEZE_SEVERE_BASE", 20, 0, 160, "freedom")
-add_param("SQUEEZE_SEVERE_PER_MOVE", 4, 0, 40, "freedom")
-add_param("SQUEEZE_MODERATE_BASE", 10, 0, 120, "freedom")
-add_param("SQUEEZE_MODERATE_PER_MOVE", 1, 0, 30, "freedom")
-add_param("SQUEEZE_LIGHT_BASE", 30, 0, 120, "freedom")
-add_param("SQUEEZE_LIGHT_PER_MOVE", 1, 0, 20, "freedom")
-add_param("TRADE_DOWN_BONUS_PER_100CP", 15, -40, 80, "trade")
-add_pair("WEAK_SQUARE_CONTROL_BONUS", 1, 1, -20, 80, "weak")
-add_pair("WEAK_SQUARE_KNIGHT_BONUS", 20, 9, -30, 120, "weak")
-add_pair("PIECE_COORDINATION_BONUS", 5, 0, -20, 80, "coordination")
-add_pair("CENTRAL_CONTROL_OVERLAP_BONUS", 1, 8, -20, 80, "coordination")
-add_pair("PIECE_IN_CENTER_BONUS", 0, 9, -30, 80, "coordination")
-add_pair("PIECE_FAR_FROM_KING_PENALTY", -2, 0, -80, 20, "coordination")
-add_pair("QUADRANT_SPREAD_BONUS", 9, 11, -20, 80, "coordination")
-add_pair("EXTENDED_CENTER_ATTACK_BONUS", 0, 5, -20, 80, "coordination")
-for i, value in enumerate([7, 15, 30]):
-    add_param(f"ADVANCED_PAWN_BONUS_MG[{i}]", value, -30, 120, "advanced")
-for i, value in enumerate([2, 8, 35]):
-    add_param(f"ADVANCED_PAWN_BONUS_EG[{i}]", value, -30, 160, "advanced")
-
-
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("csv_path", nargs="?", default="analysis/self_play/texel_self_play.csv")
@@ -180,7 +151,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--groups",
-        default="mobility,pawn,king,freedom,trade,weak,coordination,advanced",
+        default="mobility,pawn,king",
         help="Comma-separated groups to tune. Use all to include king attack weights.",
     )
     parser.add_argument(
@@ -326,11 +297,6 @@ def add_pair_coeff(coeffs: dict[int, float], name: str, sign: int, phase: int, c
     mgw, egw = phase_weight(phase)
     add(coeffs, f"{name}.mg", sign * count * mgw)
     add(coeffs, f"{name}.eg", sign * count * egw)
-
-
-def material(pos: Position, color: str) -> int:
-    pieces = pos.white if color == "white" else pos.black
-    return sum(PIECE_VALUES[k] * bits.bit_count() for k, bits in pieces.items() if k != "pawn")
 
 
 def ranks_ahead(color: str, rank: int, file_mask: int) -> int:
@@ -540,115 +506,6 @@ def king_coeffs(pos: Position, coeffs: dict[int, float], phase: int, include_wei
         add(coeffs, "KING_CENTRALIZATION_EG", sign * max(0, 3 - center_dist) * egw)
 
 
-def squeeze_coeffs(pos: Position, coeffs: dict[int, float]) -> None:
-    for color, side_sign in (("white", -1), ("black", 1)):
-        mobility = side_mobility(pos, color)
-        if mobility == 0:
-            add(coeffs, "SQUEEZE_TOTAL_LOCKDOWN", side_sign)
-        elif mobility <= 5:
-            add(coeffs, "SQUEEZE_SEVERE_BASE", side_sign)
-            add(coeffs, "SQUEEZE_SEVERE_PER_MOVE", side_sign * (5 - mobility))
-        elif mobility <= 15:
-            add(coeffs, "SQUEEZE_MODERATE_BASE", side_sign)
-            add(coeffs, "SQUEEZE_MODERATE_PER_MOVE", side_sign * (15 - mobility))
-        elif mobility <= 30:
-            add(coeffs, "SQUEEZE_LIGHT_BASE", side_sign)
-            add(coeffs, "SQUEEZE_LIGHT_PER_MOVE", -side_sign * mobility)
-
-
-def trade_coeffs(pos: Position, coeffs: dict[int, float], phase: int) -> None:
-    diff = material(pos, "white") - material(pos, "black")
-    if abs(diff) < 100:
-        return
-    total = material(pos, "white") + material(pos, "black")
-    traded = max(0, 5100 - total)
-    raw = (1 if diff > 0 else -1) * (abs(diff) // 100) * traded / 5100.0
-    mgw, egw = phase_weight(phase)
-    add(coeffs, "TRADE_DOWN_BONUS_PER_100CP", raw * (mgw / 4.0 + egw))
-
-
-def build_defendable(color: str, their_pawns: int) -> int:
-    out = 0
-    bits = their_pawns
-    while bits:
-        sq, bits = pop_lsb(bits)
-        f = file_of(sq)
-        r = rank_of(sq)
-        adj = (FILES[f - 1] if f > 0 else 0) | (FILES[f + 1] if f < 7 else 0)
-        ranks = range(0, r) if color == "white" else range(r + 1, 8)
-        for rr in ranks:
-            out |= RANKS[rr] & adj
-    return out
-
-
-def weak_coeffs(pos: Position, coeffs: dict[int, float], phase: int) -> None:
-    for color in ("white", "black"):
-        sign = sign_for(color)
-        us = pos.white if color == "white" else pos.black
-        them = pos.black if color == "white" else pos.white
-        ranks = RANKS[3] | RANKS[4] | RANKS[5] if color == "white" else RANKS[2] | RANKS[3] | RANKS[4]
-        holes = ranks & ~build_defendable(color, them["pawn"])
-        add_pair_coeff(coeffs, "WEAK_SQUARE_KNIGHT_BONUS", sign, phase, (us["knight"] & holes).bit_count())
-        our_control = pawn_attacks_white(us["pawn"]) if color == "white" else pawn_attacks_black(us["pawn"])
-        add_pair_coeff(coeffs, "WEAK_SQUARE_CONTROL_BONUS", sign, phase, (holes & our_control).bit_count())
-
-
-def coordination_coeffs(pos: Position, coeffs: dict[int, float], phase: int) -> None:
-    q_masks = [
-        (FILES[0] | FILES[1] | FILES[2] | FILES[3]) & (RANKS[0] | RANKS[1] | RANKS[2] | RANKS[3]),
-        (FILES[4] | FILES[5] | FILES[6] | FILES[7]) & (RANKS[0] | RANKS[1] | RANKS[2] | RANKS[3]),
-        (FILES[0] | FILES[1] | FILES[2] | FILES[3]) & (RANKS[4] | RANKS[5] | RANKS[6] | RANKS[7]),
-        (FILES[4] | FILES[5] | FILES[6] | FILES[7]) & (RANKS[4] | RANKS[5] | RANKS[6] | RANKS[7]),
-    ]
-    for color in ("white", "black"):
-        sign = sign_for(color)
-        us = pos.white if color == "white" else pos.black
-        our_occ = pos.occ_white if color == "white" else pos.occ_black
-        king = pos.white_king if color == "white" else pos.black_king
-        non_pawn_king = our_occ & ~us["pawn"] & ~us["king"]
-        attacks = []
-        total = 0
-        for piece, attack_fn in (
-            ("knight", lambda sq: knight_attacks(sq)),
-            ("bishop", lambda sq: bishop_attacks(sq, pos.occ)),
-            ("rook", lambda sq: rook_attacks(sq, pos.occ)),
-            ("queen", lambda sq: queen_attacks(sq, pos.occ)),
-        ):
-            piece_attacks = 0
-            bits = us[piece]
-            while bits:
-                sq, bits = pop_lsb(bits)
-                atk = attack_fn(sq)
-                piece_attacks |= atk
-                total |= atk
-                if piece != "queen" and king is not None:
-                    excess = max(0, chebyshev(sq, king) - 4)
-                    add_pair_coeff(coeffs, "PIECE_FAR_FROM_KING_PENALTY", sign, phase, excess)
-            attacks.append(piece_attacks)
-        add_pair_coeff(coeffs, "PIECE_COORDINATION_BONUS", sign, phase, (total & non_pawn_king).bit_count())
-        overlap = 0
-        for i in range(4):
-            for j in range(i + 1, 4):
-                overlap += (attacks[i] & attacks[j] & EXTENDED_CENTER).bit_count()
-        add_pair_coeff(coeffs, "CENTRAL_CONTROL_OVERLAP_BONUS", sign, phase, overlap)
-        add_pair_coeff(coeffs, "PIECE_IN_CENTER_BONUS", sign, phase, (non_pawn_king & CENTER).bit_count())
-        add_pair_coeff(coeffs, "EXTENDED_CENTER_ATTACK_BONUS", sign, phase, (total & EXTENDED_CENTER).bit_count())
-        quadrants = sum(1 for mask in q_masks if non_pawn_king & mask)
-        add_pair_coeff(coeffs, "QUADRANT_SPREAD_BONUS", sign, phase, max(0, quadrants - 1))
-
-
-def advanced_coeffs(pos: Position, coeffs: dict[int, float], phase: int) -> None:
-    mgw, egw = phase_weight(phase)
-    for color in ("white", "black"):
-        sign = sign_for(color)
-        us = pos.white if color == "white" else pos.black
-        masks = (RANKS[4], RANKS[5], RANKS[6]) if color == "white" else (RANKS[3], RANKS[2], RANKS[1])
-        for i, mask in enumerate(masks):
-            count = (us["pawn"] & mask).bit_count()
-            add(coeffs, f"ADVANCED_PAWN_BONUS_MG[{i}]", sign * count * mgw)
-            add(coeffs, f"ADVANCED_PAWN_BONUS_EG[{i}]", sign * count * egw)
-
-
 def label_from_result(value: str) -> float | None:
     if value == "":
         return None
@@ -711,22 +568,12 @@ def read_dataset(args: argparse.Namespace, tune_indices: set[int]) -> Dataset:
             mobility_coeffs(pos, coeffs, phase)
             pawn_coeffs(pos, coeffs, phase)
             king_coeffs(pos, coeffs, phase, include_weights)
-            squeeze_coeffs(pos, coeffs)
-            trade_coeffs(pos, coeffs, phase)
-            weak_coeffs(pos, coeffs, phase)
-            coordination_coeffs(pos, coeffs, phase)
-            advanced_coeffs(pos, coeffs, phase)
 
             modeled = contribution(defaults, coeffs)
             component_sum = sum(float(row[name]) for name in (
                 "mobility_cp",
                 "pawn_structure_cp",
                 "king_safety_cp",
-                "freedom_cp",
-                "trade_down_cp",
-                "weak_squares_cp",
-                "coordination_cp",
-                "advanced_pawns_cp",
             ))
             rebuild_errors.append(modeled - component_sum)
             row_index = len(labels)
@@ -819,7 +666,7 @@ def project_values(values: list[int], tune_indices: set[int], args: argparse.Nam
     if args.no_constraints:
         return projected
 
-    for name in ("DOUBLED_PAWN_PENALTY", "ISOLATED_PAWN_PENALTY", "BACKWARD_PAWN_PENALTY", "PIECE_FAR_FROM_KING_PENALTY"):
+    for name in ("DOUBLED_PAWN_PENALTY", "ISOLATED_PAWN_PENALTY", "BACKWARD_PAWN_PENALTY"):
         set_max(projected, name, 0)
     for name in (
         "BISHOP_PAIR_BONUS",
@@ -830,13 +677,6 @@ def project_values(values: list[int], tune_indices: set[int], args: argparse.Nam
         "ROOK_BEHIND_PASSER_BONUS",
         "CONNECTED_PASSER_BONUS",
         "PASSER_PATH_CLEAR_BONUS",
-        "WEAK_SQUARE_CONTROL_BONUS",
-        "WEAK_SQUARE_KNIGHT_BONUS",
-        "PIECE_COORDINATION_BONUS",
-        "CENTRAL_CONTROL_OVERLAP_BONUS",
-        "PIECE_IN_CENTER_BONUS",
-        "QUADRANT_SPREAD_BONUS",
-        "EXTENDED_CENTER_ATTACK_BONUS",
     ):
         set_min(projected, name, 0)
 
@@ -848,14 +688,6 @@ def project_values(values: list[int], tune_indices: set[int], args: argparse.Nam
         "KING_CENTRALIZATION_EG",
         "PASSER_KING_PROXIMITY_EG",
         "PASSER_ENEMY_KING_DIST_EG",
-        "SQUEEZE_TOTAL_LOCKDOWN",
-        "SQUEEZE_SEVERE_BASE",
-        "SQUEEZE_SEVERE_PER_MOVE",
-        "SQUEEZE_MODERATE_BASE",
-        "SQUEEZE_MODERATE_PER_MOVE",
-        "SQUEEZE_LIGHT_BASE",
-        "SQUEEZE_LIGHT_PER_MOVE",
-        "TRADE_DOWN_BONUS_PER_100CP",
     ):
         projected[PARAM_INDEX[name]] = max(0, projected[PARAM_INDEX[name]])
 
@@ -865,7 +697,7 @@ def project_values(values: list[int], tune_indices: set[int], args: argparse.Nam
     )
     for name in ("KNIGHT_MOBILITY", "BISHOP_MOBILITY", "ROOK_MOBILITY", "QUEEN_MOBILITY"):
         project_mobility_table(projected, name)
-    for name in ("PASSED_PAWN_BONUS_MG", "PASSED_PAWN_BONUS_EG", "ADVANCED_PAWN_BONUS_MG", "ADVANCED_PAWN_BONUS_EG"):
+    for name in ("PASSED_PAWN_BONUS_MG", "PASSED_PAWN_BONUS_EG"):
         project_array_nonnegative(projected, name)
     project_king_safety(projected)
 
@@ -998,6 +830,10 @@ def selected_indices(groups_arg: str) -> list[int]:
     groups = {part.strip() for part in groups_arg.split(",") if part.strip()}
     if "all" in groups:
         groups = {param.group for param in PARAMS}
+    known = {param.group for param in PARAMS}
+    unknown = sorted(groups - known)
+    if unknown:
+        raise SystemExit(f"Unknown group(s): {', '.join(unknown)}. Known groups: {', '.join(sorted(known))}.")
     return [i for i, param in enumerate(PARAMS) if param.group in groups]
 
 
@@ -1056,34 +892,13 @@ def print_rust(values: list[int]) -> None:
         print(f"    ({limit}, {values[PARAM_INDEX[f'KING_SAFETY_TABLE[{i}]']]}),")
     print("];")
     for name in (
-        "SQUEEZE_TOTAL_LOCKDOWN",
-        "SQUEEZE_SEVERE_BASE",
-        "SQUEEZE_SEVERE_PER_MOVE",
-        "SQUEEZE_MODERATE_BASE",
-        "SQUEEZE_MODERATE_PER_MOVE",
-        "SQUEEZE_LIGHT_BASE",
-        "SQUEEZE_LIGHT_PER_MOVE",
-        "TRADE_DOWN_BONUS_PER_100CP",
-    ):
-        print_scalar_const(name, values)
-    for name in (
         "ROOK_BEHIND_PASSER_BONUS",
         "CONNECTED_PASSER_BONUS",
         "PASSER_PATH_CLEAR_BONUS",
-        "WEAK_SQUARE_CONTROL_BONUS",
-        "WEAK_SQUARE_KNIGHT_BONUS",
-        "PIECE_COORDINATION_BONUS",
-        "CENTRAL_CONTROL_OVERLAP_BONUS",
-        "PIECE_IN_CENTER_BONUS",
-        "PIECE_FAR_FROM_KING_PENALTY",
-        "QUADRANT_SPREAD_BONUS",
-        "EXTENDED_CENTER_ATTACK_BONUS",
     ):
         print_pair_const(name, values)
     for name in ("KING_CENTRALIZATION_EG", "PASSER_KING_PROXIMITY_EG", "PASSER_ENEMY_KING_DIST_EG"):
         print_scalar_const(name, values)
-    for name in ("ADVANCED_PAWN_BONUS_MG", "ADVANCED_PAWN_BONUS_EG"):
-        print_array(name, values, "[i32]")
 
 
 def main() -> None:

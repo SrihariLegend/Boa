@@ -437,7 +437,7 @@ Plain PGN run:
 node tools/player_style_probe.mjs \
   --pgn /path/to/games.pgn \
   --player "karpov|petrosian" \
-  --label squeeze_masters
+  --label karpov_petrossian
 ```
 
 Useful options:

@@ -159,15 +159,15 @@ In cutechess, pass options as:
 
 ```text
 option.Hash=64
-option.Eval Freedom Scale=0
-option.Search Squeeze Extensions=false
+option.Eval Mobility Scale=0
+option.Search SEE=false
 ```
 
 In Match Manager `extraA` and `extraB`, pass options as comma-separated
 `name=value` entries:
 
 ```text
-Eval Freedom Scale=0,Search Squeeze Extensions=false
+Eval Mobility Scale=0,Search SEE=false
 ```
 
 ## Reporting Template

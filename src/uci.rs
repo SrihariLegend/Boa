@@ -50,7 +50,7 @@ fn handle_setoption<'a>(
             *tt = TranspositionTable::new(mb.clamp(1, 4096));
         }
         "contempt" => {
-            *contempt = val.parse().unwrap_or(20);
+            *contempt = val.parse().unwrap_or(0);
         }
         _ => {
             let _ = options.set_uci_option(&name, &val);
@@ -178,7 +178,7 @@ pub fn run() {
 
     let mut board = Board::startpos();
     let mut position_history: Vec<u64> = Vec::new();
-    let mut contempt = 20i32; // draw avoidance — Boa never seeks draws (positive = avoid draws for root side)
+    let mut contempt = 0i32;
     let mut options = EngineOptions::default();
 
     // Input thread: the search blocks the main thread, so "stop"/"quit" must
@@ -219,7 +219,7 @@ pub fn run() {
                 println!("id author Dirac");
                 println!("option name Hash type spin default 128 min 1 max 4096");
                 println!("option name Threads type spin default 1 min 1 max 64");
-                println!("option name Contempt type spin default 20 min -100 max 100");
+                println!("option name Contempt type spin default 0 min -100 max 100");
                 print_engine_options();
                 println!("uciok");
                 let _ = io::stdout().flush();
@@ -292,11 +292,6 @@ pub fn run() {
 
 fn print_engine_options() {
     let defaults = EngineOptions::default();
-    println!(
-        "option name Search Restriction Ordering Scale type spin default {} min 0 max 300",
-        defaults.search.restriction_ordering_scale
-    );
-
     for (name, default) in [
         ("Eval Material Scale", defaults.eval.material_scale),
         ("Eval PST Scale", defaults.eval.pst_scale),
@@ -306,14 +301,6 @@ fn print_engine_options() {
             defaults.eval.pawn_structure_scale,
         ),
         ("Eval King Safety Scale", defaults.eval.king_safety_scale),
-        ("Eval Freedom Scale", defaults.eval.freedom_scale),
-        ("Eval Trade Down Scale", defaults.eval.trade_down_scale),
-        ("Eval Weak Squares Scale", defaults.eval.weak_squares_scale),
-        ("Eval Coordination Scale", defaults.eval.coordination_scale),
-        (
-            "Eval Advanced Pawns Scale",
-            defaults.eval.advanced_pawns_scale,
-        ),
     ] {
         println!(
             "option name {} type spin default {} min 0 max 300",
@@ -325,10 +312,6 @@ fn print_engine_options() {
         "Search SEE",
         "Search SEE QSearch Pruning",
         "Search SEE Capture Ordering",
-        "Search Restriction Ordering",
-        "Search Squeeze Extensions",
-        "Search Squeeze Null Move Suppression",
-        "Search Squeeze LMR Relief",
     ] {
         println!("option name {} type check default true", name);
     }

@@ -1,20 +1,17 @@
 // ============================================================
-// search.rs — Alpha-beta search with Boa-style pruning policy
+// search.rs - Alpha-beta search with pragmatic pruning policy
 //
 // Core algorithm: PVS (Principal Variation Search) with iterative deepening.
 //
-// Boa-style search modifications:
-//   1. Move ordering: restriction score boosts moves that reduce opponent mobility
-//   2. Positional mode detection: when position is "quiet" (low tactics),
-//      we reduce LMR aggressiveness and allow quiet moves to breathe
-//   3. Squeeze extensions: moves that drastically reduce opponent freedom
-//      get a +1 ply extension
-//   4. No null-move pruning in squeeze positions (null move misleads here)
-//   5. Contempt: slight draw avoidance to prefer grinding
+// Search modifications:
+//   1. PVS with iterative deepening, aspiration windows, and TT cutoffs
+//   2. Null-move pruning, futility pruning, LMR, and quiescence search
+//   3. SEE-guided capture ordering and optional losing-capture pruning
+//   4. Lazy SMP root search when multiple threads are requested
 // ============================================================
 
 use crate::board::{Board, Zobrist};
-use crate::config::{scale_score, EngineOptions};
+use crate::config::EngineOptions;
 use crate::eval::{evaluate, EvalContext};
 use crate::movegen::{gen_captures, gen_moves, AttackTables, MoveList};
 use crate::tt::{score_from_tt, score_to_tt, Bound, TranspositionTable};
@@ -33,11 +30,11 @@ const ASPIRATION_MIN_DEPTH: u32 = 4;
 
 /// Reverse futility pruning margin per depth unit (centipawns).
 /// SF uses ~67-73 (tuned via SPRT). 80 is slightly aggressive. [NEEDS TUNING]
-const RFP_MARGIN_PER_DEPTH: i32 = 80;
+const RFP_MARGIN_PER_DEPTH: i32 = 100;
 
 /// RFP: maximum depth at which to apply.
 /// SF applies up to depth ~7-8. 6 is conservative.
-const RFP_MAX_DEPTH: i32 = 6;
+const RFP_MAX_DEPTH: i32 = 5;
 
 /// Null-move pruning: minimum depth to attempt.
 /// Standard: 3 (CPW, SF).
@@ -48,12 +45,8 @@ const NULL_MOVE_MIN_DEPTH: i32 = 3;
 const NULL_MOVE_BASE_R: i32 = 3;
 const NULL_MOVE_DEPTH_DIVISOR: i32 = 4;
 
-/// Null-move: cap return above beta to avoid false mates from zugzwang.
-/// This prevents null-move from returning an inflated score. [NEEDS TUNING]
-const NULL_MOVE_BETA_CAP: i32 = 100;
-
 /// Late move reductions: minimum moves searched before applying LMR.
-/// SF uses 3-4 depending on context. 4 is standard (CPW).
+/// Classic conservative LMR: reduce only late quiet moves.
 const LMR_FULL_DEPTH_MOVES: usize = 4;
 
 /// LMR: minimum depth to start reducing.
@@ -83,27 +76,6 @@ const HARD_TIME_ADDITIVE_CAP: u64 = 2000;
 /// Time management: reserve for GUI/process latency per move. Without this,
 /// the engine budgets 100% of the clock and forfeits on time at fast TCs.
 const MOVE_OVERHEAD_MS: i64 = 30;
-
-/// Squeeze mode: opponent mobility threshold.
-/// When opponent has <= this many pseudo-legal moves, we consider them "squeezed".
-/// Average mobility in chess is ~30-35 moves. 12 represents severely restricted. [NEEDS TUNING]
-const SQUEEZE_MOBILITY_THRESHOLD: u32 = 12;
-
-/// Restriction extension: quiet moves that cut opponent mobility by at least
-/// this much are searched one ply deeper when the resulting mobility is low.
-const RESTRICTION_EXTENSION_MOBILITY_DROP: u32 = 4;
-
-/// Restriction extension: do not extend ordinary developing moves that merely
-/// trim mobility from a still-free position.
-const RESTRICTION_EXTENSION_MAX_MOBILITY: u32 = 18;
-
-/// Move ordering: quiet moves that reduce opponent mobility should be searched
-/// earlier even when the drop is not large enough to earn an extension.
-const RESTRICTION_ORDER_DROP_BONUS: i32 = 120;
-const RESTRICTION_ORDER_LOW_MOBILITY_BONUS: i32 = 12;
-const RESTRICTION_ORDER_SQUEEZE_BONUS: i32 = 160;
-const RESTRICTION_ORDER_COUNTERPLAY_PENALTY: i32 = 40;
-const RESTRICTION_ORDER_MIN_DEPTH: i32 = 3;
 
 /// Internal Iterative Deepening: minimum depth to apply IID.
 /// When no TT move is available, do a reduced search to find a candidate.
@@ -153,8 +125,6 @@ pub struct SearchStats {
 
     pub iid_triggers: u64,
     pub iid_successes: u64,
-
-    pub restriction_extensions: u64,
 }
 
 impl SearchStats {
@@ -213,7 +183,7 @@ impl SearchStats {
              null_tries {} null_cuts {} ({:.1}%) \
              rfp_cuts {} lmr_cand {} lmr_reduced {} ({:.1}%) lmr_re {} ({:.1}%) \
              see+ {} ({:.1}%) see= {} ({:.1}%) see- {} ({:.1}%) see-searched {} \
-             iid {} iid_ok {} restrict_ext {}",
+             iid {} iid_ok {}",
             self.nodes,
             self.qnodes,
             q_pct,
@@ -242,7 +212,6 @@ impl SearchStats {
             self.see_loss_searched,
             self.iid_triggers,
             self.iid_successes,
-            self.restriction_extensions,
         )
     }
 }
@@ -303,7 +272,6 @@ struct MoveScoreContext {
     ply: usize,
     counter: Move,
     us: usize,
-    opponent_mobility_before: Option<u32>,
 }
 
 #[derive(Clone, Copy)]
@@ -314,9 +282,6 @@ struct LmrInput {
     is_promo: bool,
     gives_check: bool,
     in_check: bool,
-    squeeze_mode: bool,
-    squeeze_lmr_relief: bool,
-    improving: bool,
 }
 
 // ---- Search context ----
@@ -367,7 +332,6 @@ pub struct SearchContext<'a> {
 #[derive(Clone, Copy, Default)]
 pub struct PlyInfo {
     pub current_move: Move,
-    pub static_eval: Score,
 }
 
 impl<'a> SearchContext<'a> {
@@ -828,10 +792,8 @@ fn try_null_move(
     depth: i32,
     ply: usize,
     static_eval: Score,
-    squeeze_mode: bool,
-    suppress_in_squeeze: bool,
 ) -> Option<Score> {
-    if (squeeze_mode && suppress_in_squeeze) || depth < NULL_MOVE_MIN_DEPTH || static_eval < beta {
+    if depth < NULL_MOVE_MIN_DEPTH || static_eval < beta {
         return None;
     }
     let our_pieces = board.occ[board.side as usize]
@@ -861,7 +823,7 @@ fn try_null_move(
 
     if null_score >= beta {
         ctx.stats.null_move_cutoffs += 1;
-        return Some(null_score.min(beta + NULL_MOVE_BETA_CAP));
+        return Some(beta);
     }
     None
 }
@@ -934,12 +896,6 @@ fn score_single_move(
         s += 750_000;
     }
     s += ctx.history[scoring.us][move_from(m) as usize][move_to(m) as usize];
-    if ctx.options.search.restriction_ordering {
-        s += scale_score(
-            restriction_move_score(board, ctx, m, scoring.opponent_mobility_before),
-            ctx.options.search.restriction_ordering_scale,
-        );
-    }
     s
 }
 
@@ -1060,25 +1016,11 @@ fn alpha_beta(
             options: ctx.options,
         },
     );
-    if ply < 128 {
-        ctx.stack[ply].static_eval = static_eval;
-    }
-    let improving = (2..128).contains(&ply) && static_eval > ctx.stack[ply - 2].static_eval;
-
-    // ---- Positional mode detection (the Boa adaptation) ----
-    let squeeze_mode = !in_check && is_squeeze_position(board, ctx.atk);
-
-    // ---- Pruning heuristics (skip in check, PV, squeeze mode) ----
+    // ---- Pruning heuristics (skip in check and PV nodes) ----
 
     if !in_check && !is_pv {
         // Reverse futility pruning (static null move)
-        // When improving, we use a tighter margin (position is getting better,
-        // so we're less willing to prune). SF uses similar improving adjustments.
-        let rfp_margin = if improving {
-            RFP_MARGIN_PER_DEPTH * depth * 3 / 4
-        } else {
-            RFP_MARGIN_PER_DEPTH * depth
-        };
+        let rfp_margin = RFP_MARGIN_PER_DEPTH * depth;
         if depth <= RFP_MAX_DEPTH && static_eval - rfp_margin >= beta && !is_mate_score(static_eval)
         {
             ctx.stats.rfp_cutoffs += 1;
@@ -1086,17 +1028,7 @@ fn alpha_beta(
             return static_eval - rfp_margin;
         }
 
-        // Null move pruning — DISABLED in squeeze mode (critical Boa adaptation)
-        if let Some(null_score) = try_null_move(
-            board,
-            ctx,
-            beta,
-            depth,
-            ply,
-            static_eval,
-            squeeze_mode,
-            ctx.options.search.squeeze_null_move_suppression,
-        ) {
+        if let Some(null_score) = try_null_move(board, ctx, beta, depth, ply, static_eval) {
             ctx.history_hashes.pop();
             return null_score;
         }
@@ -1104,7 +1036,7 @@ fn alpha_beta(
 
     // Generate and order moves
     let mut list = gen_moves(board, ctx.atk);
-    score_moves(board, ctx, &mut list, tt_move, ply, depth);
+    score_moves(board, ctx, &mut list, tt_move, ply);
     if ply == 0 && ctx.smp_worker_id > 0 && list.count > 1 {
         let idx = ctx.smp_worker_id % list.count;
         list.scores[idx] += 3_000_000;
@@ -1115,11 +1047,6 @@ fn alpha_beta(
     let mut bound = Bound::Upper;
     let mut moves_searched = 0;
     let mut legal_moves = 0;
-    let pre_move_opponent_mobility = if !in_check {
-        Some(side_mobility_for_search(board, ctx.atk, board.side.flip()))
-    } else {
-        None
-    };
 
     for i in 0..list.count {
         list.pick_best(i);
@@ -1138,35 +1065,6 @@ fn alpha_beta(
         let gives_check = board.is_in_check(board.side);
         let _is_killer = ply < 128 && (m == ctx.killers[ply][0] || m == ctx.killers[ply][1]);
 
-        // ---- Squeeze extension ----
-        // Capped like the check extension (ply < root_depth + 2). Without the
-        // cap, depth never decreases in stable squeezes (which persist by
-        // design), so lines never reach quiescence and only terminate at
-        // repetition/50-move draws — making the engine score *won* squeeze
-        // endgames as draws (e.g. KQvK read as -contempt at depth 2+).
-        let post_move_opponent_mobility = pre_move_opponent_mobility
-            .map(|_| side_mobility_for_search(board, ctx.atk, board.side));
-        let squeeze_ext = if ctx.options.search.squeeze_extensions
-            && !is_capture
-            && !is_promo
-            && !in_check
-            && ply < ply_limit
-        {
-            match (pre_move_opponent_mobility, post_move_opponent_mobility) {
-                (Some(before), Some(after))
-                    if should_extend_restriction(before, after, squeeze_mode) =>
-                {
-                    1
-                }
-                _ => 0,
-            }
-        } else {
-            0
-        };
-        if squeeze_ext > 0 {
-            ctx.stats.restriction_extensions += 1;
-        }
-
         // ---- Late move reductions (LMR) ----
         let reduction = compute_lmr_reduction(
             LmrInput {
@@ -1176,9 +1074,6 @@ fn alpha_beta(
                 is_promo,
                 gives_check,
                 in_check,
-                squeeze_mode,
-                squeeze_lmr_relief: ctx.options.search.squeeze_lmr_relief,
-                improving,
             },
             ctx,
         );
@@ -1186,7 +1081,7 @@ fn alpha_beta(
             ctx.stats.lmr_actual_reductions += 1;
         }
 
-        let new_depth = (depth - 1 + squeeze_ext - reduction).max(0);
+        let new_depth = (depth - 1 - reduction).max(0);
 
         // Record the move being searched BEFORE recursing — children read
         // stack[ply].current_move for the counter-move heuristic. (Previously
@@ -1204,7 +1099,7 @@ fn alpha_beta(
                 SearchNode {
                     alpha: -beta,
                     beta: -alpha,
-                    depth: depth - 1 + squeeze_ext,
+                    depth: depth - 1,
                     ply: ply + 1,
                     is_pv,
                 },
@@ -1234,7 +1129,7 @@ fn alpha_beta(
                     SearchNode {
                         alpha: -beta,
                         beta: -alpha,
-                        depth: depth - 1 + squeeze_ext,
+                        depth: depth - 1,
                         ply: ply + 1,
                         is_pv,
                     },
@@ -1327,7 +1222,7 @@ fn quiescence(
         }
 
         let mut list = gen_moves(board, ctx.atk);
-        score_moves(board, ctx, &mut list, MOVE_NONE, ply, 0);
+        score_moves(board, ctx, &mut list, MOVE_NONE, ply);
 
         let mut legal_moves = 0;
         for i in 0..list.count {
@@ -1443,14 +1338,8 @@ fn score_moves(
     list: &mut MoveList,
     tt_move: Move,
     ply: usize,
-    depth: i32,
 ) {
     let us = board.side as usize;
-    let opponent_mobility_before = if depth >= RESTRICTION_ORDER_MIN_DEPTH {
-        Some(side_mobility_for_search(board, ctx.atk, board.side.flip()))
-    } else {
-        None
-    };
     let prev_move = if ply > 0 && ply < 128 {
         ctx.stack[ply - 1].current_move
     } else {
@@ -1472,7 +1361,6 @@ fn score_moves(
                 ply,
                 counter,
                 us,
-                opponent_mobility_before,
             },
         );
     }
@@ -1506,168 +1394,8 @@ fn score_captures(board: &Board, ctx: &SearchContext, list: &mut MoveList) {
     }
 }
 
-/// Boa restriction bonus for move ordering.
-fn restriction_move_score(
-    board: &mut Board,
-    ctx: &SearchContext,
-    m: Move,
-    opponent_mobility_before: Option<u32>,
-) -> i32 {
-    let mut score = restriction_shape_score(board, m);
-    let Some(opponent_mobility_before) = opponent_mobility_before else {
-        return score;
-    };
-    let flags = move_flags(m);
-    if flags == MF_PROMOTION
-        || flags == MF_EN_PASSANT
-        || board.sq_piece[move_to(m) as usize] != PIECE_NONE
-    {
-        return score;
-    }
-
-    let undo = board.make_move(m, ctx.z);
-    let legal = !board.is_in_check(board.side.flip());
-    let opponent_mobility_after = if legal {
-        Some(side_mobility_for_search(board, ctx.atk, board.side))
-    } else {
-        None
-    };
-    board.unmake_move(m, &undo, ctx.z);
-
-    if let Some(after) = opponent_mobility_after {
-        score += restriction_mobility_delta_score(opponent_mobility_before, after);
-    }
-
-    score
-}
-
-fn restriction_shape_score(board: &Board, m: Move) -> i32 {
-    let to = move_to(m);
-    let mover = board.sq_piece[move_from(m) as usize];
-    if mover == PIECE_NONE {
-        return 0;
-    }
-    let pt = piece_type(mover);
-    let color = piece_color(mover);
-
-    let centrality = centrality_score(to);
-    let forward_bonus = if color == Color::White {
-        sq_rank(to) as i32 * 2
-    } else {
-        (7 - sq_rank(to) as i32) * 2
-    };
-    let piece_bonus = match pt {
-        PieceType::Knight => 15,
-        PieceType::Bishop => 10,
-        PieceType::Rook => 8,
-        _ => 0,
-    };
-
-    centrality + forward_bonus + piece_bonus
-}
-
-fn restriction_mobility_delta_score(before: u32, after: u32) -> i32 {
-    if after < before {
-        let drop = before - after;
-        let mut score = drop as i32 * RESTRICTION_ORDER_DROP_BONUS;
-        if after <= RESTRICTION_EXTENSION_MAX_MOBILITY {
-            score += (RESTRICTION_EXTENSION_MAX_MOBILITY - after) as i32
-                * RESTRICTION_ORDER_LOW_MOBILITY_BONUS;
-        }
-        if after <= SQUEEZE_MOBILITY_THRESHOLD {
-            score += RESTRICTION_ORDER_SQUEEZE_BONUS;
-        }
-        score
-    } else if after > before {
-        -((after - before).min(6) as i32 * RESTRICTION_ORDER_COUNTERPLAY_PENALTY)
-    } else {
-        0
-    }
-}
-
-fn centrality_score(sq: Square) -> i32 {
-    let f = sq_file(sq) as i32;
-    let r = sq_rank(sq) as i32;
-    let dist_f = (3 - f).abs().min((4 - f).abs());
-    let dist_r = (3 - r).abs().min((4 - r).abs());
-    let max_dist = dist_f + dist_r;
-    (6 - max_dist).max(0) * 5
-}
-
 // ============================================================
-// Section 5: Boa-specific search helpers
-// ============================================================
-
-fn is_squeeze_position(board: &Board, atk: &AttackTables) -> bool {
-    side_mobility_for_search(board, atk, board.side.flip()) <= SQUEEZE_MOBILITY_THRESHOLD
-}
-
-fn side_mobility_for_search(board: &Board, atk: &AttackTables, color: Color) -> u32 {
-    let ci = color as usize;
-    let oi = color.flip() as usize;
-    let occ = board.occ_all;
-    let our_occ = board.occ[ci];
-
-    let mut mobility = 0u32;
-
-    let pawns = board.pieces[ci][PieceType::Pawn as usize];
-    if color == Color::White {
-        mobility += ((pawns << 8) & !occ).count_ones();
-        mobility += (((pawns << 8) & !occ & BB_RANK_3) << 8 & !occ).count_ones();
-        mobility += ((pawns << 9) & !BB_FILE_A & board.occ[oi]).count_ones();
-        mobility += ((pawns << 7) & !BB_FILE_H & board.occ[oi]).count_ones();
-    } else {
-        mobility += ((pawns >> 8) & !occ).count_ones();
-        mobility += (((pawns >> 8) & !occ & BB_RANK_6) >> 8 & !occ).count_ones();
-        mobility += ((pawns >> 7) & !BB_FILE_A & board.occ[oi]).count_ones();
-        mobility += ((pawns >> 9) & !BB_FILE_H & board.occ[oi]).count_ones();
-    }
-
-    let mut pieces = board.pieces[ci][PieceType::Knight as usize];
-    while pieces != 0 {
-        let sq = bb_pop_lsb(&mut pieces);
-        mobility += (atk.knight[sq as usize] & !our_occ).count_ones();
-    }
-
-    let mut pieces = board.pieces[ci][PieceType::Bishop as usize];
-    while pieces != 0 {
-        let sq = bb_pop_lsb(&mut pieces);
-        mobility += (atk.bishop_attacks(sq, occ) & !our_occ).count_ones();
-    }
-
-    let mut pieces = board.pieces[ci][PieceType::Rook as usize];
-    while pieces != 0 {
-        let sq = bb_pop_lsb(&mut pieces);
-        mobility += (atk.rook_attacks(sq, occ) & !our_occ).count_ones();
-    }
-
-    let mut pieces = board.pieces[ci][PieceType::Queen as usize];
-    while pieces != 0 {
-        let sq = bb_pop_lsb(&mut pieces);
-        mobility += (atk.queen_attacks(sq, occ) & !our_occ).count_ones();
-    }
-
-    let king_sq = board.king_sq[ci];
-    if king_sq != NO_SQUARE {
-        mobility += (atk.king[king_sq as usize] & !our_occ).count_ones();
-    }
-
-    mobility
-}
-
-fn should_extend_restriction(before: u32, after: u32, squeeze_mode: bool) -> bool {
-    if after > before {
-        return false;
-    }
-    if squeeze_mode && after <= SQUEEZE_MOBILITY_THRESHOLD {
-        return true;
-    }
-    before - after >= RESTRICTION_EXTENSION_MOBILITY_DROP
-        && after <= RESTRICTION_EXTENSION_MAX_MOBILITY
-}
-
-// ============================================================
-// Section 6: Heuristic helpers
+// Section 5: Heuristic helpers
 // ============================================================
 
 fn update_killers(ctx: &mut SearchContext, ply: usize, m: Move) {
@@ -1738,22 +1466,7 @@ fn compute_lmr_reduction(input: LmrInput, ctx: &mut SearchContext) -> i32 {
         return 0;
     }
     ctx.stats.lmr_attempts += 1;
-    let mut base_r = lmr_reduction(input.depth, input.moves_searched);
-    // Boa adaptation: reduce less in squeeze (positional grinding)
-    if input.squeeze_mode && input.squeeze_lmr_relief {
-        base_r = (base_r - 1).max(0);
-    }
-    // When position is not improving, search less deeply (SF-style)
-    if !input.improving {
-        base_r += 1;
-    }
-    base_r
-}
-
-fn lmr_reduction(depth: i32, moves_done: usize) -> i32 {
-    let d = (depth as f32).ln();
-    let m = (moves_done as f32).ln();
-    (d * m / 2.0) as i32
+    1
 }
 
 // ============================================================
@@ -2102,38 +1815,5 @@ mod tests {
         );
 
         assert_eq!(score, -SCORE_MATE);
-    }
-
-    #[test]
-    fn restriction_extension_rewards_large_drop_into_low_mobility() {
-        assert!(should_extend_restriction(22, 18, false));
-        assert!(should_extend_restriction(16, 12, false));
-    }
-
-    #[test]
-    fn restriction_extension_ignores_small_or_still_free_drops() {
-        assert!(!should_extend_restriction(22, 19, false));
-        assert!(!should_extend_restriction(40, 32, false));
-        assert!(!should_extend_restriction(12, 13, true));
-    }
-
-    #[test]
-    fn restriction_ordering_rewards_mobility_drops() {
-        assert!(restriction_mobility_delta_score(24, 20) > 0);
-        assert!(
-            restriction_mobility_delta_score(24, 12) > restriction_mobility_delta_score(24, 20)
-        );
-    }
-
-    #[test]
-    fn restriction_ordering_penalizes_releasing_counterplay() {
-        assert_eq!(restriction_mobility_delta_score(16, 16), 0);
-        assert!(restriction_mobility_delta_score(16, 20) < 0);
-    }
-
-    #[test]
-    fn squeeze_mode_keeps_extending_lockdown_positions() {
-        assert!(should_extend_restriction(12, 12, true));
-        assert!(should_extend_restriction(8, 5, true));
     }
 }

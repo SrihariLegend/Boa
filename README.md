@@ -1,6 +1,6 @@
 # Boa
 
-Boa is a UCI chess engine written in Rust. Its evaluation and search are tuned toward restriction, prophylaxis, and squeeze-style positions: reduce the opponent's useful moves, improve steadily, and convert mistakes.
+Boa is a UCI chess engine written in Rust. It uses bitboard move generation, classical tapered evaluation, and alpha-beta search with standard pruning and move-ordering heuristics.
 
 ## Build
 
@@ -40,15 +40,13 @@ quit
 Supported UCI options:
 
 - `Hash`: transposition table size in MB, default `128`, range `1..4096`.
-- `Contempt`: draw-avoidance bias in centipawns, default `20`, range `-100..100`.
+- `Threads`: search worker count, default `1`, range `1..64`.
+- `Contempt`: draw-avoidance bias in centipawns, default `0`, range `-100..100`.
 - Eval scales, all spin options with default `100`, range `0..300`:
   `Eval Material Scale`, `Eval PST Scale`, `Eval Mobility Scale`,
-  `Eval Pawn Structure Scale`, `Eval King Safety Scale`,
-  `Eval Freedom Scale`, `Eval Trade Down Scale`, `Eval Weak Squares Scale`,
-  `Eval Coordination Scale`, and `Eval Advanced Pawns Scale`.
-- Search controls: `Search Restriction Ordering` plus
-  `Search Restriction Ordering Scale`, `Search Squeeze Extensions`,
-  `Search Squeeze Null Move Suppression`, and `Search Squeeze LMR Relief`.
+  `Eval Pawn Structure Scale`, and `Eval King Safety Scale`.
+- Search controls: `Search Lazy SMP`, `Search SEE`,
+  `Search SEE QSearch Pruning`, and `Search SEE Capture Ordering`.
 
 Run `uci` to print the authoritative option list for the current binary.
 
@@ -112,7 +110,7 @@ uploads a raw `boa-<tag>-windows-x86_64.exe`, a zip archive, and
 - `EXPERIMENTS.md`: scratchpad of tried engine ideas, results, and rejected code paths.
 - `tools/match_manager/`: terminal match workflow and saved match state.
 - `tools/openings.epd`: opening suite used by Match Manager.
-- `tools/player_style_probe.mjs`: reference-player style probe for restriction experiments.
+- `tools/player_style_probe.mjs`: reference-player style probe for game collections.
 
 ## Documentation For Tooling
 

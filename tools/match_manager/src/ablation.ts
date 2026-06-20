@@ -46,36 +46,6 @@ const ABLATIONS: Ablation[] = [
     reason: "king shield and king-zone attacks",
   },
   {
-    name: "no_eval_freedom",
-    option: "Eval Freedom Scale",
-    value: "0",
-    reason: "Boa freedom/squeeze metric",
-  },
-  {
-    name: "no_eval_trade_down",
-    option: "Eval Trade Down Scale",
-    value: "0",
-    reason: "simplification bonus when ahead",
-  },
-  {
-    name: "no_eval_weak_squares",
-    option: "Eval Weak Squares Scale",
-    value: "0",
-    reason: "hole and weak-square complex eval",
-  },
-  {
-    name: "no_eval_coordination",
-    option: "Eval Coordination Scale",
-    value: "0",
-    reason: "piece harmony, central overlap, spread",
-  },
-  {
-    name: "no_eval_advanced_pawns",
-    option: "Eval Advanced Pawns Scale",
-    value: "0",
-    reason: "advanced pawn eval",
-  },
-  {
     name: "no_search_lazy_smp",
     option: "Search Lazy SMP",
     value: "false",
@@ -99,130 +69,9 @@ const ABLATIONS: Ablation[] = [
     value: "false",
     reason: "SEE contribution to capture move ordering",
   },
-  {
-    name: "no_search_restriction_ordering",
-    option: "Search Restriction Ordering",
-    value: "false",
-    reason: "quiet move ordering bonus for restriction",
-  },
-  {
-    name: "no_search_squeeze_extensions",
-    option: "Search Squeeze Extensions",
-    value: "false",
-    reason: "extra ply for squeeze-preserving moves",
-  },
-  {
-    name: "no_search_squeeze_null_suppression",
-    option: "Search Squeeze Null Move Suppression",
-    value: "false",
-    reason: "disable null-move pruning inside squeeze mode",
-  },
-  {
-    name: "no_search_squeeze_lmr_relief",
-    option: "Search Squeeze LMR Relief",
-    value: "false",
-    reason: "reduce LMR less in squeeze mode",
-  },
 ];
 
-const SCALE_SWEEPS: Ablation[] = [
-  {
-    name: "freedom_scale_0",
-    option: "Eval Freedom Scale",
-    value: "0",
-    reason: "remove Boa freedom/squeeze eval; baseline is scale 100",
-  },
-  {
-    name: "freedom_scale_50",
-    option: "Eval Freedom Scale",
-    value: "50",
-    reason: "halve Boa freedom/squeeze eval; baseline is scale 100",
-  },
-  {
-    name: "freedom_scale_150",
-    option: "Eval Freedom Scale",
-    value: "150",
-    reason: "increase Boa freedom/squeeze eval; baseline is scale 100",
-  },
-  {
-    name: "weak_squares_scale_0",
-    option: "Eval Weak Squares Scale",
-    value: "0",
-    reason: "remove weak-square eval; baseline is scale 100",
-  },
-  {
-    name: "weak_squares_scale_50",
-    option: "Eval Weak Squares Scale",
-    value: "50",
-    reason: "halve weak-square eval; baseline is scale 100",
-  },
-  {
-    name: "weak_squares_scale_150",
-    option: "Eval Weak Squares Scale",
-    value: "150",
-    reason: "increase weak-square eval; baseline is scale 100",
-  },
-  {
-    name: "coordination_scale_0",
-    option: "Eval Coordination Scale",
-    value: "0",
-    reason: "remove coordination eval; baseline is scale 100",
-  },
-  {
-    name: "coordination_scale_50",
-    option: "Eval Coordination Scale",
-    value: "50",
-    reason: "halve coordination eval; baseline is scale 100",
-  },
-  {
-    name: "coordination_scale_150",
-    option: "Eval Coordination Scale",
-    value: "150",
-    reason: "increase coordination eval; baseline is scale 100",
-  },
-  {
-    name: "advanced_pawns_scale_0",
-    option: "Eval Advanced Pawns Scale",
-    value: "0",
-    reason: "remove advanced-pawn eval; baseline is scale 100",
-  },
-  {
-    name: "advanced_pawns_scale_50",
-    option: "Eval Advanced Pawns Scale",
-    value: "50",
-    reason: "halve advanced-pawn eval; baseline is scale 100",
-  },
-  {
-    name: "advanced_pawns_scale_150",
-    option: "Eval Advanced Pawns Scale",
-    value: "150",
-    reason: "increase advanced-pawn eval; baseline is scale 100",
-  },
-  {
-    name: "restriction_ordering_scale_0",
-    option: "Search Restriction Ordering Scale",
-    value: "0",
-    reason: "remove restriction move-ordering score; baseline is scale 100",
-  },
-  {
-    name: "restriction_ordering_scale_25",
-    option: "Search Restriction Ordering Scale",
-    value: "25",
-    reason: "quarter restriction move-ordering score; baseline is scale 100",
-  },
-  {
-    name: "restriction_ordering_scale_50",
-    option: "Search Restriction Ordering Scale",
-    value: "50",
-    reason: "halve restriction move-ordering score; baseline is scale 100",
-  },
-  {
-    name: "restriction_ordering_scale_75",
-    option: "Search Restriction Ordering Scale",
-    value: "75",
-    reason: "reduce restriction move-ordering score; baseline is scale 100",
-  },
-];
+const SCALE_SWEEPS: Ablation[] = [];
 
 type CliOptions = {
   engine: string;

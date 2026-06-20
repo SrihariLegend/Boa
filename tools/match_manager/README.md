@@ -128,7 +128,7 @@ Common settings:
 Extra UCI options are comma-separated:
 
 ```text
-Eval Freedom Scale=0,Search Squeeze Extensions=false
+Eval Mobility Scale=0,Search SEE=false
 ```
 
 The options are passed as cutechess `option.<name>=<value>` arguments. Use exact

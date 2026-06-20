@@ -1,30 +1,19 @@
 // ============================================================
-// eval.rs — Boa-style evaluation
-//
-// Philosophy: measure how much freedom the opponent has.
-// When opponent freedom approaches zero, mistakes become inevitable.
+// eval.rs - Classical tapered evaluation
 //
 // Score is always from the perspective of the side to move (negamax).
 //
 // Structure:
 //   1. Piece-square tables (midgame + endgame, tapered)
 //   2. Pawn structure (passed, isolated, doubled, chains)
-//   3. Mobility — our mobility bonus + opponent mobility penalty (the Boa squeeze)
+//   3. Mobility
 //   4. Piece activity (outposts, rooks on open files, bishop pair)
 //   5. King safety
-//   6. Freedom metric (signature Boa term)
-//   7. Space evaluation (Boa space advantage)
-//   8. Trade-down bonus (simplify when ahead — Boa technique)
-//   9. Bad bishop detection (bishop blocked by own pawns)
-//  10. Weak square complex (holes in pawn structure — Boa exploitation)
-//  11. Good knight vs bad bishop (minor piece imbalance)
-//  12. Prophylaxis (opponent pawn break prevention)
-//  13. Piece coordination (harmony between pieces)
-//  14. Passed pawn advancement safety (clear path + king support)
+//   6. Passed pawn advancement safety (clear path + king support)
 // ============================================================
 
 use crate::board::Board;
-use crate::config::{scale_score, scale_score_pair, EngineOptions};
+use crate::config::{scale_score_pair, EngineOptions};
 use crate::movegen::{pawn_attacks_black, pawn_attacks_white, AttackTables};
 use crate::types::*;
 
@@ -35,64 +24,64 @@ use crate::types::*;
 
 /// Bishop pair bonus (mg, eg). Having two bishops is worth extra material.
 /// SF uses ~30/50 (tuned). CPW recommends 25-50. [NEEDS TUNING]
-const BISHOP_PAIR_BONUS: (i32, i32) = (25, 80);
+const BISHOP_PAIR_BONUS: (i32, i32) = (30, 50);
 
 /// Rook on fully open file (no pawns of either color). (mg, eg)
 /// SF: ~20/7. CPW: 15-25. [NEEDS TUNING]
-const ROOK_OPEN_FILE_BONUS: (i32, i32) = (25, 5);
+const ROOK_OPEN_FILE_BONUS: (i32, i32) = (20, 10);
 
 /// Rook on semi-open file (no friendly pawns). (mg, eg)
 /// SF: ~7/6. CPW: 8-15. [NEEDS TUNING]
-const ROOK_SEMI_OPEN_FILE_BONUS: (i32, i32) = (19, 8);
+const ROOK_SEMI_OPEN_FILE_BONUS: (i32, i32) = (10, 5);
 
 /// Rook on 7th rank bonus. Strong in both phases.
 /// SF: ~15-30 depending on context. CPW: 20-30. [NEEDS TUNING]
-const ROOK_ON_SEVENTH_BONUS: (i32, i32) = (50, 35);
+const ROOK_ON_SEVENTH_BONUS: (i32, i32) = (20, 30);
 
 /// Knight outpost bonus when supported/unsupported by own pawn.
 /// An outpost is a square on ranks 4-6 not attackable by enemy pawns.
 /// SF: ~30-50 for supported outposts. These are conservative. [NEEDS TUNING]
 /// (Values were swapped — a supported outpost must outscore an unsupported one.)
-const OUTPOST_SUPPORTED: i32 = 10;
-const OUTPOST_UNSUPPORTED: i32 = 5;
+const OUTPOST_SUPPORTED: i32 = 20;
+const OUTPOST_UNSUPPORTED: i32 = 10;
 
 /// Tempo bonus: side-to-move advantage in centipawns.
 /// SF uses ~28 (tuned). 15 is conservative. [NEEDS TUNING]
-const TEMPO_BONUS: i32 = 24;
+const TEMPO_BONUS: i32 = 10;
 
 /// Doubled pawn penalty (mg, eg). Two pawns on same file.
 /// SF: ~-5/-20 (file-dependent). CPW: -10 to -20. [NEEDS TUNING]
-const DOUBLED_PAWN_PENALTY: (i32, i32) = (-13, 0);
+const DOUBLED_PAWN_PENALTY: (i32, i32) = (-5, -10);
 
 /// Isolated pawn penalty (mg, eg). No friendly pawns on adjacent files.
 /// SF: ~-10/-20. CPW: -15 to -25. [NEEDS TUNING]
-const ISOLATED_PAWN_PENALTY: (i32, i32) = (-13, -38);
+const ISOLATED_PAWN_PENALTY: (i32, i32) = (-10, -20);
 
 /// Backward pawn penalty (mg, eg). Pawn on starting rank with no adjacent support.
 /// Less studied than isolated. SF has complex backward pawn logic. [NEEDS TUNING]
-const BACKWARD_PAWN_PENALTY: (i32, i32) = (-23, -30);
+const BACKWARD_PAWN_PENALTY: (i32, i32) = (-8, -12);
 
 /// Pawn chain bonus per protected pawn (mg, eg).
 /// Pawns defending each other. SF: ~3-5. [NEEDS TUNING]
-const PAWN_CHAIN_BONUS: (i32, i32) = (6, 15);
+const PAWN_CHAIN_BONUS: (i32, i32) = (3, 5);
 
 /// Passed pawn bonus tables indexed by advancement (distance from promotion).
 /// Values increase exponentially as pawn advances. Shape follows SF/CPW convention. [NEEDS TUNING]
-const PASSED_PAWN_BONUS_MG: [i32; 8] = [0, 2, 0, 5, 15, 75, 70, 0];
-const PASSED_PAWN_BONUS_EG: [i32; 8] = [0, 10, 5, 20, 65, 95, 115, 0];
+const PASSED_PAWN_BONUS_MG: [i32; 8] = [0, 0, 5, 10, 20, 40, 70, 0];
+const PASSED_PAWN_BONUS_EG: [i32; 8] = [0, 5, 10, 20, 40, 80, 120, 0];
 
 /// Pawn shield: bonus per shielding pawn, with a base penalty for exposed king.
 /// shield_score = count * PER_PAWN - BASE_PENALTY
 /// With 3 shield pawns: 3*10 - 30 = 0 (neutral). 0 pawns: -30. [NEEDS TUNING]
-const PAWN_SHIELD_PER_PAWN: i32 = 22;
+const PAWN_SHIELD_PER_PAWN: i32 = 10;
 const PAWN_SHIELD_BASE_PENALTY: i32 = 30;
 
 /// King zone attack unit weights by piece type.
 /// Each piece attacking the king zone contributes this many "attack units".
 /// Inspired by CPW safety tables. Queens count most, pawns/kings not counted. [NEEDS TUNING]
 const KING_ATTACK_WEIGHT_KNIGHT: i32 = 2;
-const KING_ATTACK_WEIGHT_BISHOP: i32 = 3;
-const KING_ATTACK_WEIGHT_ROOK: i32 = 1;
+const KING_ATTACK_WEIGHT_BISHOP: i32 = 2;
+const KING_ATTACK_WEIGHT_ROOK: i32 = 3;
 const KING_ATTACK_WEIGHT_QUEEN: i32 = 5;
 
 /// King safety penalty table: maps attack_units to penalty.
@@ -100,97 +89,35 @@ const KING_ATTACK_WEIGHT_QUEEN: i32 = 5;
 const KING_SAFETY_TABLE: [(i32, i32); 7] = [
     // (max_attack_units, penalty)
     (2, 0),
-    (5, 20),
-    (8, 50),
-    (11, 80),
-    (15, 120),
-    (20, 170),
-    (i32::MAX, 230),
+    (5, 10),
+    (8, 25),
+    (11, 50),
+    (15, 80),
+    (20, 120),
+    (i32::MAX, 160),
 ];
-
-/// Freedom metric squeeze bonuses.
-/// These reward positions where opponent mobility is severely restricted.
-/// The tiered structure reflects that restriction becomes exponentially
-/// more valuable as mobility approaches zero. [NEEDS TUNING]
-const SQUEEZE_TOTAL_LOCKDOWN: i32 = 80; // 0 moves
-const SQUEEZE_SEVERE_BASE: i32 = 20; // 1-5 moves: 60 + (5-mob)*4
-const SQUEEZE_SEVERE_PER_MOVE: i32 = 4;
-const SQUEEZE_MODERATE_BASE: i32 = 10; // 6-15 moves: 30 + (15-mob)*3
-const SQUEEZE_MODERATE_PER_MOVE: i32 = 2;
-
-/// Trade-down bonus: when ahead in material, reward exchanging pieces.
-/// Boa would grind down into won endgames by simplifying.
-/// Bonus per centipawn of material advantage, scaled by pieces traded. [NEEDS TUNING]
-const TRADE_DOWN_BONUS_PER_100CP: i32 = 17;
 
 /// Rook behind passed pawn bonus. Rooks belong behind passers (Tarrasch rule).
 /// Applies to both own and enemy passed pawns. [NEEDS TUNING]
-const ROOK_BEHIND_PASSER_BONUS: (i32, i32) = (5, 10);
+const ROOK_BEHIND_PASSER_BONUS: (i32, i32) = (10, 20);
 
-/// King centralization in endgame: bonus per rank/file closer to center.
-/// Boa's endgame technique relied on active king. [NEEDS TUNING]
-const KING_CENTRALIZATION_EG: i32 = 15;
+/// King centralization in endgame: bonus per rank/file closer to center. [NEEDS TUNING]
+const KING_CENTRALIZATION_EG: i32 = 10;
 
 /// Connected passed pawn bonus multiplier.
 /// Two passed pawns on adjacent files supporting each other. [NEEDS TUNING]
-const CONNECTED_PASSER_BONUS: (i32, i32) = (0, 5);
+const CONNECTED_PASSER_BONUS: (i32, i32) = (10, 20);
 
-/// Passed pawn path clear bonus: extra bonus when no piece blocks the passer's path.
-/// Boa converted passers by ensuring the path was clear. [NEEDS TUNING]
-const PASSER_PATH_CLEAR_BONUS: (i32, i32) = (2, 15);
+/// Passed pawn path clear bonus: extra bonus when no piece blocks the passer's path. [NEEDS TUNING]
+const PASSER_PATH_CLEAR_BONUS: (i32, i32) = (5, 20);
 
 /// Passed pawn king proximity bonus: bonus when friendly king is near the passer.
 /// Scale: per rank of proximity (closer = more bonus). Endgame only. [NEEDS TUNING]
-const PASSER_KING_PROXIMITY_EG: i32 = 15;
+const PASSER_KING_PROXIMITY_EG: i32 = 5;
 
 /// Passed pawn enemy king distance bonus: bonus when enemy king is far from passer.
 /// Endgame only, per rank of distance. [NEEDS TUNING]
-const PASSER_ENEMY_KING_DIST_EG: i32 = 11;
-
-/// Weak square bonus: reward for controlling holes in opponent's pawn structure.
-/// A "hole" is a square that can never be defended by enemy pawns.
-/// Boa was the supreme exploiter of weak-square complexes. [NEEDS TUNING]
-const WEAK_SQUARE_CONTROL_BONUS: (i32, i32) = (0, 1);
-
-/// Weak square occupation bonus: knight on a hole is especially strong.
-/// SF: outpost bonuses are 30-50. This is specifically for holes. [NEEDS TUNING]
-const WEAK_SQUARE_KNIGHT_BONUS: (i32, i32) = (20, 9);
-
-/// Piece coordination: bonus when our pieces mutually defend each other.
-/// Boa's pieces worked as a harmonious unit. [NEEDS TUNING]
-const PIECE_COORDINATION_BONUS: (i32, i32) = (5, 0);
-
-/// Piece coordination: bonus when multiple pieces control the same central square.
-/// [NEEDS TUNING]
-const CENTRAL_CONTROL_OVERLAP_BONUS: (i32, i32) = (1, 8);
-
-// ---- NEW DATA-DRIVEN EVAL CONSTANTS ----
-// Based on analysis of ~7K master games (Boa, Petrosian, Keres)
-
-/// Pieces in center: bonus per non-pawn piece on d4/d5/e4/e5.
-/// Effect size +0.422 — one of the strongest positional predictors. [NEEDS TUNING]
-const PIECE_IN_CENTER_BONUS: (i32, i32) = (0, 9); // reduced: PST already rewards center
-
-/// Piece-king proximity: penalty when a piece is far from our king.
-/// Effect size -0.320 — pieces spread far from king correlate with losing. [NEEDS TUNING]
-/// Applied per piece with chebyshev distance > 4 from king.
-const PIECE_FAR_FROM_KING_PENALTY: (i32, i32) = (-2, 0);
-const PIECE_KING_DISTANCE_THRESHOLD: u8 = 4;
-
-/// Board quadrant spread: bonus for having pieces in multiple quadrants.
-/// Effect size +0.479 — spreading pieces across the board = winning. [NEEDS TUNING]
-/// Bonus per quadrant occupied (0-4 quadrants).
-const QUADRANT_SPREAD_BONUS: (i32, i32) = (9, 11);
-
-/// Extended center attack: bonus per square attacked in extended center (c3-f6).
-/// Effect size +0.243 — controlling the extended center matters. [NEEDS TUNING]
-const EXTENDED_CENTER_ATTACK_BONUS: (i32, i32) = (0, 6);
-
-/// Advanced pawn bonus: extra reward for pawns past the 4th rank.
-/// Effect size +0.328 — advanced pawns are strong. [NEEDS TUNING]
-/// Per pawn on rank 5/6/7 (relative to color).
-const ADVANCED_PAWN_BONUS_MG: [i32; 3] = [6, 15, 30]; // rank 5, 6, 7
-const ADVANCED_PAWN_BONUS_EG: [i32; 3] = [2, 8, 35];
+const PASSER_ENEMY_KING_DIST_EG: i32 = 5;
 
 // ============================================================
 // Section 1: Piece-square tables
@@ -201,25 +128,25 @@ type PstTable = [(i32, i32); 64];
 #[rustfmt::skip]
 const PST_PAWN: PstTable = [
     (0,0),(0,0),(0,0),(0,0),(0,0),(0,0),(0,0),(0,0),
-    (7,7),(-3,-5),(7,7),(-7,-7),(7,7),(7,-3),(7,-7),(-3,3),
-    (11,12),(4,3),(3,3),(7,7),(7,7),(12,3),(-2,-2),(12,10),
-    (12,12),(3,17),(22,20),(32,32),(18,19),(8,12),(3,17),(12,12),
-    (11,17),(8,10),(13,13),(29,23),(23,23),(13,13),(8,8),(17,17),
-    (27,27),(32,32),(23,37),(30,28),(28,28),(23,23),(32,27),(27,27),
-    (47,57),(52,62),(38,48),(38,62),(52,48),(52,62),(38,48),(33,57),
+    (0,0),(0,0),(0,0),(0,0),(0,0),(0,0),(0,0),(0,0),
+    (5,5),(5,5),(10,10),(0,0),(0,0),(10,10),(5,5),(5,5),
+    (5,5),(10,10),(15,15),(25,25),(25,25),(15,15),(10,10),(5,5),
+    (10,10),(15,15),(20,20),(30,30),(30,30),(20,20),(15,15),(10,10),
+    (20,20),(25,25),(30,30),(35,35),(35,35),(30,30),(25,25),(20,20),
+    (40,50),(45,55),(45,55),(45,55),(45,55),(45,55),(45,55),(40,50),
     (0,0),(0,0),(0,0),(0,0),(0,0),(0,0),(0,0),(0,0),
 ];
 
 #[rustfmt::skip]
 const PST_KNIGHT: PstTable = [
-    (-43,-23),(-33,-27),(-37,-17),(-37,-3),(-23,-17),(-37,-17),(-33,-13),(-43,-37),
-    (-33,-13),(-27,-12),(-7,-7),(7,-3),(7,7),(-7,-7),(-13,-2),(-47,-27),
-    (-37,-17),(-7,-7),(3,12),(14,3),(22,3),(3,-2),(7,-7),(-23,-3),
-    (-23,-17),(7,-2),(21,3),(13,8),(26,8),(13,3),(-2,-2),(-23,-17),
-    (-35,-3),(7,-7),(8,17),(13,8),(25,8),(8,17),(7,7),(-23,-3),
-    (-37,-17),(-2,-2),(17,-2),(22,17),(9,3),(17,-2),(12,12),(-23,-3),
-    (-33,-13),(-13,2),(7,-7),(12,12),(8,12),(7,-6),(-19,2),(-47,-27),
-    (-57,-37),(-33,-27),(-37,-3),(-37,-17),(-37,-17),(-37,-3),(-47,-27),(-57,-27),
+    (-50,-30),(-40,-20),(-30,-10),(-30,-10),(-30,-10),(-30,-10),(-40,-20),(-50,-30),
+    (-40,-20),(-20, -5),  (0,  0),  (0,  0),  (0,  0),  (0,  0),(-20, -5),(-40,-20),
+    (-30,-10),  (0,  0),(10,  5),(15, 10),(15, 10),(10,  5),  (0,  0),(-30,-10),
+    (-30,-10),  (5,  5),(15, 10),(20, 15),(20, 15),(15, 10),  (5,  5),(-30,-10),
+    (-30,-10),  (0,  0),(15, 10),(20, 15),(20, 15),(15, 10),  (0,  0),(-30,-10),
+    (-30,-10),  (5,  5),(10,  5),(15, 10),(15, 10),(10,  5),  (5,  5),(-30,-10),
+    (-40,-20),(-20, -5),  (0,  0),  (5,  5),  (5,  5),  (0,  0),(-20, -5),(-40,-20),
+    (-50,-30),(-40,-20),(-30,-10),(-30,-10),(-30,-10),(-30,-10),(-40,-20),(-50,-30),
 ];
 
 #[rustfmt::skip]
@@ -294,50 +221,33 @@ fn pst_value(pt: PieceType, sq: Square, color: Color) -> (i32, i32) {
 // ============================================================
 
 const KNIGHT_MOBILITY: [(i32, i32); 9] = [
-    (-30, -20),
-    (-15, -10),
+    (-20, -10),
+    (-10, -5),
     (0, 0),
-    (5, 5),
-    (10, 10),
-    (15, 15),
-    (20, 18),
-    (25, 20),
-    (28, 22),
+    (4, 4),
+    (8, 8),
+    (12, 10),
+    (16, 12),
+    (20, 14),
+    (24, 16),
 ];
 const BISHOP_MOBILITY: [(i32, i32); 14] = [
-    (-30, -25),
-    (-15, -12),
-    (0, 0),
-    (5, 4),
-    (8, 7),
-    (11, 10),
-    (14, 13),
-    (17, 16),
-    (19, 18),
-    (21, 20),
-    (23, 22),
-    (25, 24),
-    (26, 25),
-    (27, 26),
-];
-const ROOK_MOBILITY: [(i32, i32); 15] = [
-    (-25, -20),
-    (-12, -10),
+    (-20, -10),
+    (-10, -5),
     (0, 0),
     (3, 3),
-    (5, 5),
-    (7, 7),
-    (9, 9),
-    (11, 11),
-    (13, 13),
-    (15, 15),
-    (17, 17),
-    (19, 19),
-    (20, 20),
-    (21, 21),
-    (22, 22),
+    (6, 5),
+    (9, 7),
+    (12, 9),
+    (15, 11),
+    (18, 13),
+    (20, 15),
+    (22, 17),
+    (24, 19),
+    (26, 21),
+    (28, 23),
 ];
-const QUEEN_MOBILITY: [(i32, i32); 28] = [
+const ROOK_MOBILITY: [(i32, i32); 15] = [
     (-15, -10),
     (-8, -5),
     (0, 0),
@@ -346,6 +256,29 @@ const QUEEN_MOBILITY: [(i32, i32); 28] = [
     (6, 6),
     (8, 8),
     (10, 10),
+    (12, 12),
+    (14, 14),
+    (16, 16),
+    (18, 18),
+    (20, 20),
+    (22, 22),
+    (24, 24),
+];
+const QUEEN_MOBILITY: [(i32, i32); 28] = [
+    (-10, -5),
+    (-5, -2),
+    (0, 0),
+    (1, 1),
+    (2, 2),
+    (3, 3),
+    (4, 4),
+    (5, 5),
+    (6, 6),
+    (7, 7),
+    (8, 8),
+    (9, 9),
+    (10, 10),
+    (11, 11),
     (12, 12),
     (13, 13),
     (14, 14),
@@ -356,15 +289,9 @@ const QUEEN_MOBILITY: [(i32, i32); 28] = [
     (19, 19),
     (20, 20),
     (21, 21),
-    (21, 21),
-    (22, 22),
     (22, 22),
     (23, 23),
-    (23, 23),
     (24, 24),
-    (24, 24),
-    (24, 24),
-    (25, 25),
     (25, 25),
 ];
 
@@ -451,30 +378,11 @@ pub fn evaluate_breakdown(board: &Board, ctx: &EvalContext) -> EvalBreakdown {
     mg_score += ks_mg;
     eg_score += ks_eg;
 
-    let freedom = scale_score(freedom_metric(board, ctx), ctx.options.eval.freedom_scale);
-    mg_score += freedom;
-    eg_score += freedom;
-
-    let (trade_mg, trade_eg) = trade_down_bonus(board);
-    let (trade_mg, trade_eg) =
-        scale_score_pair((trade_mg, trade_eg), ctx.options.eval.trade_down_scale);
-    mg_score += trade_mg;
-    eg_score += trade_eg;
-
-    let (ws_mg, ws_eg) = weak_square_eval(board, ctx);
-    let (ws_mg, ws_eg) = scale_score_pair((ws_mg, ws_eg), ctx.options.eval.weak_squares_scale);
-    mg_score += ws_mg;
-    eg_score += ws_eg;
-
-    let (pc_mg, pc_eg) = piece_coordination_eval(board, ctx);
-    let (pc_mg, pc_eg) = scale_score_pair((pc_mg, pc_eg), ctx.options.eval.coordination_scale);
-    mg_score += pc_mg;
-    eg_score += pc_eg;
-
-    let (ap_mg, ap_eg) = advanced_pawn_eval(board);
-    let (ap_mg, ap_eg) = scale_score_pair((ap_mg, ap_eg), ctx.options.eval.advanced_pawns_scale);
-    mg_score += ap_mg;
-    eg_score += ap_eg;
+    let freedom = 0;
+    let (trade_mg, trade_eg) = (0, 0);
+    let (ws_mg, ws_eg) = (0, 0);
+    let (pc_mg, pc_eg) = (0, 0);
+    let (ap_mg, ap_eg) = (0, 0);
 
     let score = blend_phase(mg_score, eg_score, phase);
 
@@ -681,11 +589,10 @@ fn outpost_bonus(sq: Square, color: Color, their_pawn_attacks: Bb, board: &Board
 }
 
 // ============================================================
-// Section 5: The Boa Freedom Metric
+// Section 5: Mobility diagnostics
 // ============================================================
 
-/// Total pseudo-legal mobility for one side (pawns incl. pushes/captures,
-/// pieces, king). The raw input to the squeeze bonus.
+/// Total pseudo-legal mobility for one side (pawns incl. pushes/captures, pieces, king).
 pub(crate) fn side_mobility(board: &Board, ctx: &EvalContext, color: Color) -> u32 {
     let ci = color as usize;
     let oi = color.flip() as usize;
@@ -743,61 +650,6 @@ pub(crate) fn side_mobility(board: &Board, ctx: &EvalContext, color: Color) -> u
     }
 
     mobility
-}
-
-/// Tiered squeeze bonus: restriction becomes exponentially more valuable
-/// as the opponent's mobility approaches zero.
-fn squeeze_bonus(mobility: u32) -> i32 {
-    if mobility == 0 {
-        SQUEEZE_TOTAL_LOCKDOWN
-    } else if mobility <= 5 {
-        SQUEEZE_SEVERE_BASE + (5 - mobility as i32) * SQUEEZE_SEVERE_PER_MOVE
-    } else if mobility <= 15 {
-        SQUEEZE_MODERATE_BASE + (15 - mobility as i32) * SQUEEZE_MODERATE_PER_MOVE
-    } else if mobility <= 30 {
-        (30 - mobility as i32).max(0)
-    } else {
-        0
-    }
-}
-
-/// White-perspective freedom term, like every other eval term.
-/// White is rewarded for restricting Black and penalized for being
-/// restricted — symmetric, so the squeeze is scored correctly no matter
-/// whose turn it is (the old stm-relative version inverted the bonus
-/// whenever Black was to move).
-fn freedom_metric(board: &Board, ctx: &EvalContext) -> i32 {
-    let white_mob = side_mobility(board, ctx, Color::White);
-    let black_mob = side_mobility(board, ctx, Color::Black);
-    squeeze_bonus(black_mob) - squeeze_bonus(white_mob)
-}
-
-// ============================================================
-// Section 5b: Trade-down bonus (Boa endgame technique)
-// ============================================================
-//
-// When ahead in material, it's advantageous to trade pieces (not pawns).
-// This reduces the opponent's counterplay chances and makes the material
-// advantage more decisive. Boa was a master of this technique.
-
-fn trade_down_bonus(board: &Board) -> (i32, i32) {
-    let w_mat = board.non_pawn_material(Color::White);
-    let b_mat = board.non_pawn_material(Color::Black);
-    let mat_diff = w_mat - b_mat; // positive = white ahead
-
-    if mat_diff.abs() < 100 {
-        return (0, 0);
-    }
-
-    // How many pieces have been traded? Start = 5100, each trade reduces this.
-    let total_npm = w_mat + b_mat;
-    let pieces_traded = (5100 - total_npm).max(0);
-    let trade_bonus =
-        mat_diff.signum() * (mat_diff.abs() / 100) * TRADE_DOWN_BONUS_PER_100CP * pieces_traded
-            / 5100;
-
-    // Primarily an endgame bonus
-    (trade_bonus / 4, trade_bonus)
 }
 
 /// Build a bitboard mask of ranks ahead of `rank` for the given color, intersected with `file_mask`.
@@ -933,45 +785,6 @@ fn is_backward_pawn(
     // No friendly pawn on adjacent files behind or equal rank can support
     let support_mask = ranks_behind_inclusive(color, rank, adj_files);
     our_pawns & support_mask == 0
-}
-
-/// Build defendable mask for weak square evaluation.
-fn build_defendable_mask(color: Color, their_pawns: Bb) -> Bb {
-    let mut defendable = 0u64;
-    let mut tp = their_pawns;
-    while tp != 0 {
-        let sq = bb_pop_lsb(&mut tp);
-        let f = sq_file(sq);
-        let r = sq_rank(sq);
-        let adj = if f > 0 { BB_FILES[(f - 1) as usize] } else { 0 }
-            | if f < 7 { BB_FILES[(f + 1) as usize] } else { 0 };
-        if color == Color::White {
-            for dr in 0..r {
-                defendable |= BB_RANKS[dr as usize] & adj;
-            }
-        } else {
-            for dr in (r + 1)..8 {
-                defendable |= BB_RANKS[dr as usize] & adj;
-            }
-        }
-    }
-    defendable
-}
-
-/// Compute king proximity penalty for a single piece.
-fn king_proximity_penalty(sq: Square, king_sq: Square) -> (i32, i32) {
-    if king_sq == NO_SQUARE {
-        return (0, 0);
-    }
-    let dist = chebyshev_distance(sq, king_sq);
-    if dist <= PIECE_KING_DISTANCE_THRESHOLD {
-        return (0, 0);
-    }
-    let excess = (dist - PIECE_KING_DISTANCE_THRESHOLD) as i32;
-    (
-        excess * PIECE_FAR_FROM_KING_PENALTY.0,
-        excess * PIECE_FAR_FROM_KING_PENALTY.1,
-    )
 }
 
 // ============================================================
@@ -1150,7 +963,6 @@ fn king_safety(board: &Board, ctx: &EvalContext) -> (i32, i32) {
         mg += sign * (-penalty);
 
         // King centralization bonus (endgame only)
-        // Boa's endgame mastery relied on active king placement
         let king_rank = sq_rank(king_sq) as i32;
         let center_dist = (3 - king_file as i32)
             .abs()
@@ -1162,236 +974,11 @@ fn king_safety(board: &Board, ctx: &EvalContext) -> (i32, i32) {
     (mg, eg)
 }
 
-// ============================================================
-// Section 8: Weak square complex (Boa exploitation)
-// ============================================================
-//
-// A "weak square" (hole) is a square that can never be defended by
-// enemy pawns because the adjacent file pawns have advanced past it
-// or don't exist. Boa would identify these holes and plant pieces
-// on them, creating permanent positional advantages.
-
 /// Chebyshev (king) distance between two squares
 fn chebyshev_distance(a: Square, b: Square) -> u8 {
     let df = (sq_file(a) as i8 - sq_file(b) as i8).unsigned_abs();
     let dr = (sq_rank(a) as i8 - sq_rank(b) as i8).unsigned_abs();
     df.max(dr)
-}
-
-fn weak_square_eval(board: &Board, _ctx: &EvalContext) -> (i32, i32) {
-    let mut mg = 0i32;
-    let mut eg = 0i32;
-
-    for &color in &[Color::White, Color::Black] {
-        let sign = if color == Color::White { 1 } else { -1 };
-        let ci = color as usize;
-        let ti = color.flip() as usize;
-        let their_pawns = board.pieces[ti][PieceType::Pawn as usize];
-
-        let outpost_ranks = if color == Color::White {
-            BB_RANK_4 | BB_RANK_5 | BB_RANK_6
-        } else {
-            BB_RANK_3 | BB_RANK_4 | BB_RANK_5
-        };
-
-        let defendable = build_defendable_mask(color, their_pawns);
-        let holes = outpost_ranks & !defendable;
-
-        let our_knights = board.pieces[ci][PieceType::Knight as usize];
-        let our_control = if color == Color::White {
-            pawn_attacks_white(board.pieces[ci][PieceType::Pawn as usize])
-        } else {
-            pawn_attacks_black(board.pieces[ci][PieceType::Pawn as usize])
-        };
-
-        // Knights on holes
-        let n_count = (our_knights & holes).count_ones() as i32;
-        mg += sign * n_count * WEAK_SQUARE_KNIGHT_BONUS.0;
-        eg += sign * n_count * WEAK_SQUARE_KNIGHT_BONUS.1;
-
-        // General control of holes
-        let c_count = (holes & our_control).count_ones() as i32;
-        mg += sign * c_count * WEAK_SQUARE_CONTROL_BONUS.0;
-        eg += sign * c_count * WEAK_SQUARE_CONTROL_BONUS.1;
-    }
-
-    (mg, eg)
-}
-
-// ============================================================
-// Section 9: Piece coordination & activity (combined)
-// ============================================================
-//
-// Combines multiple data-driven signals into one cohesive term:
-// - Mutual piece defense (pieces protecting each other)
-// - Central control overlap (multiple piece types attacking extended center)
-// - Piece centralization (non-pawn pieces on d4/d5/e4/e5) — small bonus, avoids PST overlap
-// - Piece-king proximity (penalty for pieces far from king)
-// - Board quadrant spread (bonus for flexible piece distribution)
-// - Extended center attack count
-//
-// These are combined because they all measure "piece harmony and activity"
-// and share the same piece-attack computation. Combining avoids redundant
-// bitboard walks and keeps bonuses balanced.
-
-fn piece_coordination_eval(board: &Board, ctx: &EvalContext) -> (i32, i32) {
-    let mut mg = 0i32;
-    let mut eg = 0i32;
-
-    // Quadrant masks (computed once)
-    let q_masks: [Bb; 4] = [
-        (BB_FILE_A | BB_FILE_B | BB_FILE_C | BB_FILE_D)
-            & (BB_RANK_1 | BB_RANK_2 | BB_RANK_3 | BB_RANK_4),
-        (BB_FILE_E | BB_FILE_F | BB_FILE_G | BB_FILE_H)
-            & (BB_RANK_1 | BB_RANK_2 | BB_RANK_3 | BB_RANK_4),
-        (BB_FILE_A | BB_FILE_B | BB_FILE_C | BB_FILE_D)
-            & (BB_RANK_5 | BB_RANK_6 | BB_RANK_7 | BB_RANK_8),
-        (BB_FILE_E | BB_FILE_F | BB_FILE_G | BB_FILE_H)
-            & (BB_RANK_5 | BB_RANK_6 | BB_RANK_7 | BB_RANK_8),
-    ];
-
-    for &color in &[Color::White, Color::Black] {
-        let sign = if color == Color::White { 1 } else { -1 };
-        let ci = color as usize;
-        let occ = board.occ_all;
-        let our_occ = board.occ[ci];
-        let king_sq = board.king_sq[ci];
-
-        let our_non_pawn_non_king = our_occ
-            & !board.pieces[ci][PieceType::Pawn as usize]
-            & !board.pieces[ci][PieceType::King as usize];
-
-        let mut piece_attacks: [Bb; 4] = [0; 4]; // N, B, R, Q aggregate attacks
-        let mut total_attacks = 0u64;
-
-        // Knights
-        let mut knights = board.pieces[ci][PieceType::Knight as usize];
-        while knights != 0 {
-            let sq = bb_pop_lsb(&mut knights);
-            let atk = ctx.atk.knight[sq as usize];
-            piece_attacks[0] |= atk;
-            total_attacks |= atk;
-            let (kp_mg, kp_eg) = king_proximity_penalty(sq, king_sq);
-            mg += sign * kp_mg;
-            eg += sign * kp_eg;
-        }
-
-        // Bishops
-        let mut bishops = board.pieces[ci][PieceType::Bishop as usize];
-        while bishops != 0 {
-            let sq = bb_pop_lsb(&mut bishops);
-            let atk = ctx.atk.bishop_attacks(sq, occ);
-            piece_attacks[1] |= atk;
-            total_attacks |= atk;
-            let (kp_mg, kp_eg) = king_proximity_penalty(sq, king_sq);
-            mg += sign * kp_mg;
-            eg += sign * kp_eg;
-        }
-
-        // Rooks
-        let mut rooks = board.pieces[ci][PieceType::Rook as usize];
-        while rooks != 0 {
-            let sq = bb_pop_lsb(&mut rooks);
-            let atk = ctx.atk.rook_attacks(sq, occ);
-            piece_attacks[2] |= atk;
-            total_attacks |= atk;
-            let (kp_mg, kp_eg) = king_proximity_penalty(sq, king_sq);
-            mg += sign * kp_mg;
-            eg += sign * kp_eg;
-        }
-
-        // Queens (skip king proximity — long-range pieces)
-        let mut queens = board.pieces[ci][PieceType::Queen as usize];
-        while queens != 0 {
-            let sq = bb_pop_lsb(&mut queens);
-            let atk = ctx.atk.queen_attacks(sq, occ);
-            piece_attacks[3] |= atk;
-            total_attacks |= atk;
-        }
-
-        // 1. Mutual defense
-        let defended_minors_majors = (total_attacks & our_occ)
-            & !board.pieces[ci][PieceType::Pawn as usize]
-            & !board.pieces[ci][PieceType::King as usize];
-        let def_count = defended_minors_majors.count_ones() as i32;
-        mg += sign * def_count * PIECE_COORDINATION_BONUS.0;
-        eg += sign * def_count * PIECE_COORDINATION_BONUS.1;
-
-        // 2. Central control overlap
-        let center = BB_EXTENDED_CENTER;
-        let mut overlap_count = 0i32;
-        for i in 0..4 {
-            for j in (i + 1)..4 {
-                overlap_count += (piece_attacks[i] & piece_attacks[j] & center).count_ones() as i32;
-            }
-        }
-        mg += sign * overlap_count * CENTRAL_CONTROL_OVERLAP_BONUS.0;
-        eg += sign * overlap_count * CENTRAL_CONTROL_OVERLAP_BONUS.1;
-
-        // 3. Piece centralization
-        let center_pieces = (our_non_pawn_non_king & BB_CENTER).count_ones() as i32;
-        mg += sign * center_pieces * PIECE_IN_CENTER_BONUS.0;
-        eg += sign * center_pieces * PIECE_IN_CENTER_BONUS.1;
-
-        // 4. Extended center attack
-        let ext_center_attacks = (total_attacks & BB_EXTENDED_CENTER).count_ones() as i32;
-        mg += sign * ext_center_attacks * EXTENDED_CENTER_ATTACK_BONUS.0;
-        eg += sign * ext_center_attacks * EXTENDED_CENTER_ATTACK_BONUS.1;
-
-        // 5. Quadrant spread
-        let mut quadrants_occupied = 0i32;
-        for &qm in &q_masks {
-            if our_non_pawn_non_king & qm != 0 {
-                quadrants_occupied += 1;
-            }
-        }
-        let spread_bonus = (quadrants_occupied - 1).max(0);
-        mg += sign * spread_bonus * QUADRANT_SPREAD_BONUS.0;
-        eg += sign * spread_bonus * QUADRANT_SPREAD_BONUS.1;
-    }
-
-    (mg, eg)
-}
-
-// ============================================================
-// Section 18: Advanced pawns (data-driven, effect +0.328)
-// ============================================================
-//
-// Pawns that have pushed past the 4th rank get an extra bonus
-// beyond what PST provides. Advanced pawns restrict the opponent
-// and create outpost support.
-
-fn advanced_pawn_eval(board: &Board) -> (i32, i32) {
-    let mut mg = 0i32;
-    let mut eg = 0i32;
-
-    for &color in &[Color::White, Color::Black] {
-        let sign = if color == Color::White { 1 } else { -1 };
-        let ci = color as usize;
-        let our_pawns = board.pieces[ci][PieceType::Pawn as usize];
-
-        // Rank 5, 6, 7 for white; Rank 4, 3, 2 for black
-        let (r5, r6, r7) = if color == Color::White {
-            (BB_RANK_5, BB_RANK_6, BB_RANK_7)
-        } else {
-            (BB_RANK_4, BB_RANK_3, BB_RANK_2)
-        };
-
-        let on_5 = (our_pawns & r5).count_ones() as i32;
-        let on_6 = (our_pawns & r6).count_ones() as i32;
-        let on_7 = (our_pawns & r7).count_ones() as i32;
-
-        mg += sign
-            * (on_5 * ADVANCED_PAWN_BONUS_MG[0]
-                + on_6 * ADVANCED_PAWN_BONUS_MG[1]
-                + on_7 * ADVANCED_PAWN_BONUS_MG[2]);
-        eg += sign
-            * (on_5 * ADVANCED_PAWN_BONUS_EG[0]
-                + on_6 * ADVANCED_PAWN_BONUS_EG[1]
-                + on_7 * ADVANCED_PAWN_BONUS_EG[2]);
-    }
-
-    (mg, eg)
 }
 
 #[cfg(test)]

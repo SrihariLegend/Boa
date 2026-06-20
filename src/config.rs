@@ -15,11 +15,6 @@ pub struct EvalOptions {
     pub mobility_scale: i32,
     pub pawn_structure_scale: i32,
     pub king_safety_scale: i32,
-    pub freedom_scale: i32,
-    pub trade_down_scale: i32,
-    pub weak_squares_scale: i32,
-    pub coordination_scale: i32,
-    pub advanced_pawns_scale: i32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -29,11 +24,6 @@ pub struct SearchOptions {
     pub see: bool,
     pub see_qsearch_pruning: bool,
     pub see_capture_ordering: bool,
-    pub restriction_ordering: bool,
-    pub restriction_ordering_scale: i32,
-    pub squeeze_extensions: bool,
-    pub squeeze_null_move_suppression: bool,
-    pub squeeze_lmr_relief: bool,
 }
 
 impl Default for EngineOptions {
@@ -48,16 +38,11 @@ impl Default for EngineOptions {
 impl Default for EvalOptions {
     fn default() -> Self {
         EvalOptions {
-            material_scale: 108,
-            pst_scale: 101,
-            mobility_scale: 103,
-            pawn_structure_scale: 98,
-            king_safety_scale: 101,
-            freedom_scale: 101,
-            trade_down_scale: 102,
-            weak_squares_scale: 100,
-            coordination_scale: 101,
-            advanced_pawns_scale: 100,
+            material_scale: 100,
+            pst_scale: 100,
+            mobility_scale: 100,
+            pawn_structure_scale: 100,
+            king_safety_scale: 100,
         }
     }
 }
@@ -70,11 +55,6 @@ impl Default for SearchOptions {
             see: true,
             see_qsearch_pruning: true,
             see_capture_ordering: true,
-            restriction_ordering: true,
-            restriction_ordering_scale: 100,
-            squeeze_extensions: true,
-            squeeze_null_move_suppression: true,
-            squeeze_lmr_relief: true,
         }
     }
 }
@@ -90,23 +70,9 @@ impl EngineOptions {
             "evalmobilityscale" => set_scale(&mut self.eval.mobility_scale, value),
             "evalpawnstructurescale" => set_scale(&mut self.eval.pawn_structure_scale, value),
             "evalkingsafetyscale" => set_scale(&mut self.eval.king_safety_scale, value),
-            "evalfreedomscale" => set_scale(&mut self.eval.freedom_scale, value),
-            "evaltradedownscale" => set_scale(&mut self.eval.trade_down_scale, value),
-            "evalweaksquaresscale" => set_scale(&mut self.eval.weak_squares_scale, value),
-            "evalcoordinationscale" => set_scale(&mut self.eval.coordination_scale, value),
-            "evaladvancedpawnsscale" => set_scale(&mut self.eval.advanced_pawns_scale, value),
             "searchsee" => set_bool(&mut self.search.see, value),
             "searchseeqsearchpruning" => set_bool(&mut self.search.see_qsearch_pruning, value),
             "searchseecaptureordering" => set_bool(&mut self.search.see_capture_ordering, value),
-            "searchrestrictionordering" => set_bool(&mut self.search.restriction_ordering, value),
-            "searchrestrictionorderingscale" => {
-                set_scale(&mut self.search.restriction_ordering_scale, value)
-            }
-            "searchsqueezeextensions" => set_bool(&mut self.search.squeeze_extensions, value),
-            "searchsqueezenullmovesuppression" => {
-                set_bool(&mut self.search.squeeze_null_move_suppression, value)
-            }
-            "searchsqueezelmrrelief" => set_bool(&mut self.search.squeeze_lmr_relief, value),
             _ => false,
         }
     }
@@ -165,26 +131,17 @@ mod tests {
     fn uci_option_names_accept_spaces_and_case() {
         let mut options = EngineOptions::default();
 
-        assert!(options.set_uci_option("Eval Freedom Scale", "0"));
-        assert_eq!(options.eval.freedom_scale, 0);
-
         assert!(options.set_uci_option("Threads", "4"));
         assert_eq!(options.search.threads, 4);
 
         assert!(options.set_uci_option("Search Lazy SMP", "false"));
         assert!(!options.search.lazy_smp);
 
-        assert!(options.set_uci_option("search-squeeze-null-move-suppression", "false"));
-        assert!(!options.search.squeeze_null_move_suppression);
-
         assert!(options.set_uci_option("Search SEE QSearch Pruning", "false"));
         assert!(!options.search.see_qsearch_pruning);
 
         assert!(options.set_uci_option("Search SEE Capture Ordering", "false"));
         assert!(!options.search.see_capture_ordering);
-
-        assert!(options.set_uci_option("Search Restriction Ordering Scale", "50"));
-        assert_eq!(options.search.restriction_ordering_scale, 50);
     }
 
     #[test]

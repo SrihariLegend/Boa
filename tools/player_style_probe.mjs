@@ -43,7 +43,7 @@ Engine and sampling:
 Examples:
   node tools/player_style_probe.mjs --depth 4 --positions 80
   node tools/player_style_probe.mjs --zip games/Petrosian.zip --player petrosian
-  node tools/player_style_probe.mjs --pgn games.pgn --player "karpov|petrosian" --label squeeze_masters
+  node tools/player_style_probe.mjs --pgn games.pgn --player "karpov|petrosian" --label karpov_petrossian
 `);
   process.exit(0);
 }

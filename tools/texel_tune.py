@@ -21,7 +21,6 @@ DEFAULT_FEATURES = [
     "mobility_cp",
     "pawn_structure_cp",
     "king_safety_cp",
-    "trade_down_cp",
 ]
 
 DEFAULT_ZERO_FEATURES = [
@@ -33,11 +32,6 @@ UCI_OPTION_BY_FEATURE = {
     "mobility_cp": "Eval Mobility Scale",
     "pawn_structure_cp": "Eval Pawn Structure Scale",
     "king_safety_cp": "Eval King Safety Scale",
-    "freedom_cp": "Eval Freedom Scale",
-    "trade_down_cp": "Eval Trade Down Scale",
-    "weak_squares_cp": "Eval Weak Squares Scale",
-    "coordination_cp": "Eval Coordination Scale",
-    "advanced_pawns_cp": "Eval Advanced Pawns Scale",
 }
 
 
