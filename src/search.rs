@@ -14,6 +14,7 @@ use crate::board::{Board, Zobrist};
 use crate::config::EngineOptions;
 use crate::eval::{evaluate, EvalContext};
 use crate::movegen::{gen_captures, gen_moves, AttackTables, MoveList};
+use crate::syzygy::SyzygyTablebase;
 use crate::tt::{score_from_tt, score_to_tt, Bound, TranspositionTable};
 use crate::types::*;
 
@@ -125,6 +126,8 @@ pub struct SearchStats {
 
     pub iid_triggers: u64,
     pub iid_successes: u64,
+
+    pub tb_hits: u64,
 }
 
 impl SearchStats {
@@ -183,7 +186,7 @@ impl SearchStats {
              null_tries {} null_cuts {} ({:.1}%) \
              rfp_cuts {} lmr_cand {} lmr_reduced {} ({:.1}%) lmr_re {} ({:.1}%) \
              see+ {} ({:.1}%) see= {} ({:.1}%) see- {} ({:.1}%) see-searched {} \
-             iid {} iid_ok {}",
+             iid {} iid_ok {} tb_hits {}",
             self.nodes,
             self.qnodes,
             q_pct,
@@ -212,6 +215,7 @@ impl SearchStats {
             self.see_loss_searched,
             self.iid_triggers,
             self.iid_successes,
+            self.tb_hits,
         )
     }
 }
@@ -294,6 +298,7 @@ pub struct SearchContext<'a> {
     pub start_ms: u64,
     pub contempt: i32,
     pub options: EngineOptions,
+    pub syzygy: Option<&'a SyzygyTablebase>,
     pub root_color: Color,
 
     // Set by the UCI input thread when "stop"/"quit" arrives mid-search.
@@ -343,6 +348,7 @@ impl<'a> SearchContext<'a> {
         history_hashes: Vec<u64>,
         contempt: i32,
         options: EngineOptions,
+        syzygy: Option<&'a SyzygyTablebase>,
         stop_flag: &'a std::sync::atomic::AtomicBool,
     ) -> Self {
         SearchContext {
@@ -356,6 +362,7 @@ impl<'a> SearchContext<'a> {
             smp_worker_id: 0,
             contempt,
             options,
+            syzygy,
             root_color: Color::White, // set by search() before iterating
             history_hashes,
             nodes: 0,
@@ -491,6 +498,7 @@ pub fn bench(atk: &AttackTables, z: &Zobrist, depth: u32) {
             Vec::new(),
             20,
             EngineOptions::default(),
+            None,
             &no_stop,
         );
         let result = search(&mut board, &mut ctx);
@@ -538,8 +546,9 @@ fn lazy_smp_search(board: &mut Board, ctx: &mut SearchContext, threads: usize) -
     let limits = ctx.limits;
     let history = ctx.history_hashes.clone();
     let contempt = ctx.contempt;
+    let syzygy = ctx.syzygy;
     let stop_flag = ctx.stop_flag;
-    let mut worker_options = ctx.options;
+    let mut worker_options = ctx.options.clone();
     worker_options.search.threads = 1;
 
     std::thread::scope(|scope| {
@@ -547,6 +556,7 @@ fn lazy_smp_search(board: &mut Board, ctx: &mut SearchContext, threads: usize) -
         for worker_id in 1..threads {
             let mut worker_board = board.clone();
             let worker_history = history.clone();
+            let worker_options = worker_options.clone();
             handles.push(scope.spawn(move || {
                 let mut worker_ctx = SearchContext::new(
                     atk,
@@ -556,6 +566,7 @@ fn lazy_smp_search(board: &mut Board, ctx: &mut SearchContext, threads: usize) -
                     worker_history,
                     contempt,
                     worker_options,
+                    syzygy,
                     stop_flag,
                 );
                 worker_ctx.smp_worker_id = worker_id;
@@ -603,6 +614,31 @@ fn search_single(
     let mut best_score = -SCORE_INF;
     let mut pv = Vec::new();
     let mut completed_depth = 0;
+
+    if let Some(tb) = ctx.syzygy {
+        if let Some(root_probe) = tb.probe_root(board, ctx.atk, ctx.z, &ctx.options.syzygy) {
+            ctx.stats.tb_hits += 1;
+            if emit_info {
+                println!(
+                    "info depth 0 score cp {} nodes {} time {} tbhits {} string syzygy wdl {} dtz {}",
+                    root_probe.score,
+                    ctx.nodes,
+                    ctx.elapsed_ms(),
+                    ctx.stats.tb_hits,
+                    root_probe.wdl,
+                    root_probe.dtz
+                );
+                let _ = std::io::Write::flush(&mut std::io::stdout());
+            }
+            return SearchResult {
+                best_move: root_probe.best_move,
+                score: root_probe.score,
+                depth: 0,
+                nodes: ctx.nodes,
+                pv: vec![root_probe.best_move],
+            };
+        }
+    }
 
     for depth in 1..=ctx.limits.max_depth {
         ctx.root_depth = depth as i32;
@@ -937,6 +973,13 @@ fn alpha_beta(
         }
     }
 
+    if let Some(tb) = ctx.syzygy {
+        if let Some(score) = tb.probe_score(board, &ctx.options.syzygy, depth, ply) {
+            ctx.stats.tb_hits += 1;
+            return score;
+        }
+    }
+
     // Push current position hash so children/grandchildren can detect repetition
     ctx.history_hashes.push(board.hash);
 
@@ -1013,7 +1056,7 @@ fn alpha_beta(
         board,
         &EvalContext {
             atk: ctx.atk,
-            options: ctx.options,
+            options: &ctx.options,
         },
     );
     // ---- Pruning heuristics (skip in check and PV nodes) ----
@@ -1216,7 +1259,7 @@ fn quiescence(
                 board,
                 &EvalContext {
                     atk: ctx.atk,
-                    options: ctx.options,
+                    options: &ctx.options,
                 },
             );
         }
@@ -1265,7 +1308,7 @@ fn quiescence(
         board,
         &EvalContext {
             atk: ctx.atk,
-            options: ctx.options,
+            options: &ctx.options,
         },
     );
     if stand_pat >= beta {
@@ -1682,6 +1725,7 @@ mod tests {
             Vec::new(),
             0,
             EngineOptions::default(),
+            None,
             stop,
         )
     }

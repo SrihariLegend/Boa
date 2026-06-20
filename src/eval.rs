@@ -301,7 +301,7 @@ const QUEEN_MOBILITY: [(i32, i32); 28] = [
 
 pub struct EvalContext<'a> {
     pub atk: &'a AttackTables,
-    pub options: EngineOptions,
+    pub options: &'a EngineOptions,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

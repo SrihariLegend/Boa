@@ -2,10 +2,11 @@
 // config.rs - UCI-controlled engine feature toggles
 // ============================================================
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EngineOptions {
     pub eval: EvalOptions,
     pub search: SearchOptions,
+    pub syzygy: SyzygyOptions,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -26,11 +27,20 @@ pub struct SearchOptions {
     pub see_capture_ordering: bool,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SyzygyOptions {
+    pub path: String,
+    pub probe_depth: u32,
+    pub probe_limit: usize,
+    pub fifty_move_rule: bool,
+}
+
 impl Default for EngineOptions {
     fn default() -> Self {
         EngineOptions {
             eval: EvalOptions::default(),
             search: SearchOptions::default(),
+            syzygy: SyzygyOptions::default(),
         }
     }
 }
@@ -59,6 +69,17 @@ impl Default for SearchOptions {
     }
 }
 
+impl Default for SyzygyOptions {
+    fn default() -> Self {
+        SyzygyOptions {
+            path: String::new(),
+            probe_depth: 1,
+            probe_limit: 6,
+            fifty_move_rule: true,
+        }
+    }
+}
+
 impl EngineOptions {
     pub fn set_uci_option(&mut self, name: &str, value: &str) -> bool {
         let key = normalize_option_name(name);
@@ -73,6 +94,13 @@ impl EngineOptions {
             "searchsee" => set_bool(&mut self.search.see, value),
             "searchseeqsearchpruning" => set_bool(&mut self.search.see_qsearch_pruning, value),
             "searchseecaptureordering" => set_bool(&mut self.search.see_capture_ordering, value),
+            "syzygypath" => {
+                self.syzygy.path = value.to_string();
+                true
+            }
+            "syzygyprobedepth" => set_u32(&mut self.syzygy.probe_depth, value, 0, 64),
+            "syzygyprobelimit" => set_usize(&mut self.syzygy.probe_limit, value, 0, 6),
+            "syzygy50moverule" => set_bool(&mut self.syzygy.fifty_move_rule, value),
             _ => false,
         }
     }
@@ -94,10 +122,22 @@ fn set_scale(target: &mut i32, value: &str) -> bool {
 }
 
 fn set_threads(target: &mut usize, value: &str) -> bool {
-    let Ok(threads) = value.parse::<usize>() else {
+    set_usize(target, value, 1, 64)
+}
+
+fn set_usize(target: &mut usize, value: &str, min: usize, max: usize) -> bool {
+    let Ok(parsed) = value.parse::<usize>() else {
         return false;
     };
-    *target = threads.clamp(1, 64);
+    *target = parsed.clamp(min, max);
+    true
+}
+
+fn set_u32(target: &mut u32, value: &str, min: u32, max: u32) -> bool {
+    let Ok(parsed) = value.parse::<u32>() else {
+        return false;
+    };
+    *target = parsed.clamp(min, max);
     true
 }
 
@@ -142,6 +182,9 @@ mod tests {
 
         assert!(options.set_uci_option("Search SEE Capture Ordering", "false"));
         assert!(!options.search.see_capture_ordering);
+
+        assert!(options.set_uci_option("Syzygy Path", "/tmp/tb"));
+        assert_eq!(options.syzygy.path, "/tmp/tb");
     }
 
     #[test]
@@ -153,5 +196,8 @@ mod tests {
 
         assert!(options.set_uci_option("Eval Mobility Scale", "-10"));
         assert_eq!(options.eval.mobility_scale, 0);
+
+        assert!(options.set_uci_option("Syzygy Probe Limit", "99"));
+        assert_eq!(options.syzygy.probe_limit, 6);
     }
 }
