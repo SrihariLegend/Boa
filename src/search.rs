@@ -12,6 +12,10 @@
 
 use crate::board::{Board, Zobrist};
 use crate::config::EngineOptions;
+use crate::criticality::{
+    should_probe as should_probe_criticality, CriticalityLabelSource, CriticalityLogger,
+    CriticalityRecord,
+};
 use crate::eval::{evaluate, EvalContext};
 use crate::movegen::{gen_captures, gen_moves, AttackTables, MoveList};
 use crate::syzygy::SyzygyTablebase;
@@ -53,6 +57,19 @@ const LMR_FULL_DEPTH_MOVES: usize = 4;
 /// LMR: minimum depth to start reducing.
 /// Standard: 3 (CPW).
 const LMR_MIN_DEPTH: i32 = 3;
+
+/// LMR: log-product divisor. Smaller values reduce more aggressively.
+const LMR_LOG_DIVISOR: f64 = 2.5;
+
+/// LMR: normalize quiet history into a small reduction adjustment.
+const LMR_HISTORY_CLAMP: i32 = 8_192;
+const LMR_HISTORY_NORMALIZER: i32 = 4_096;
+
+/// LMR: extra reduction when the static eval is improving for side to move.
+const LMR_IMPROVING_BONUS: i32 = 1;
+
+/// LMR: whether to scale reductions by PV/cut-node type.
+const LMR_NODE_TYPE_SCALING: bool = true;
 
 /// Quiescence delta pruning margin (centipawns).
 /// If stand_pat + capture_value + margin < alpha, skip. ~200 is standard (SF, CPW).
@@ -282,10 +299,47 @@ struct MoveScoreContext {
 struct LmrInput {
     moves_searched: usize,
     depth: i32,
+    history_score: i32,
+    is_pv: bool,
+    is_cut_node: bool,
+    improving: bool,
     is_capture: bool,
     is_promo: bool,
     gives_check: bool,
     in_check: bool,
+}
+
+#[derive(Clone, Copy)]
+struct LmrReduction {
+    base_reduction: i32,
+    final_reduction: i32,
+}
+
+struct CriticalityRecordInput {
+    enabled: bool,
+    node_hash: u64,
+    side_to_move: Color,
+    m: Move,
+    ply: usize,
+    from: Square,
+    to: Square,
+    moving_piece: Piece,
+    depth: i32,
+    move_index: usize,
+    base_reduction: i32,
+    final_reduction: i32,
+    new_depth: i32,
+    history_score: i32,
+    static_eval: Score,
+    prev_static_eval: Option<Score>,
+    alpha: Score,
+    beta: Score,
+    is_pv: bool,
+    is_cut_node: bool,
+    improving: bool,
+    is_killer: bool,
+    is_counter: bool,
+    tt_move_agreement: bool,
 }
 
 // ---- Search context ----
@@ -300,6 +354,10 @@ pub struct SearchContext<'a> {
     pub options: EngineOptions,
     pub syzygy: Option<&'a SyzygyTablebase>,
     pub root_color: Color,
+    pub game_id: u64,
+    pub search_id: u64,
+    pub criticality_logger: Option<CriticalityLogger>,
+    in_criticality_probe: bool,
 
     // Set by the UCI input thread when "stop"/"quit" arrives mid-search.
     // Without this the engine can emit a stale bestmove into the next game
@@ -318,8 +376,8 @@ pub struct SearchContext<'a> {
     // Killer moves: [ply][slot]
     pub killers: [[Move; 2]; 128],
 
-    // History heuristic: [color][from][to]
-    pub history: [[[i32; 64]; 64]; 2],
+    // Quiet history heuristic: [color][piece_type][to]
+    pub history: [[[i32; 64]; 6]; 2],
 
     // Counter-move heuristic: [from][to] -> best reply
     pub counter: [[Move; 64]; 64],
@@ -337,6 +395,7 @@ pub struct SearchContext<'a> {
 #[derive(Clone, Copy, Default)]
 pub struct PlyInfo {
     pub current_move: Move,
+    pub static_eval: Option<Score>,
 }
 
 impl<'a> SearchContext<'a> {
@@ -350,7 +409,16 @@ impl<'a> SearchContext<'a> {
         options: EngineOptions,
         syzygy: Option<&'a SyzygyTablebase>,
         stop_flag: &'a std::sync::atomic::AtomicBool,
+        game_id: u64,
+        search_id: u64,
     ) -> Self {
+        let criticality_logger = match CriticalityLogger::open(&options.criticality.log_dir) {
+            Ok(logger) => logger,
+            Err(err) => {
+                eprintln!("info string CriticalityLogDir error: {err}");
+                None
+            }
+        };
         SearchContext {
             atk,
             z,
@@ -364,11 +432,15 @@ impl<'a> SearchContext<'a> {
             options,
             syzygy,
             root_color: Color::White, // set by search() before iterating
+            game_id,
+            search_id,
+            criticality_logger,
+            in_criticality_probe: false,
             history_hashes,
             nodes: 0,
             stopped: false,
             killers: [[MOVE_NONE; 2]; 128],
-            history: [[[0i32; 64]; 64]; 2],
+            history: [[[0i32; 64]; 6]; 2],
             counter: [[MOVE_NONE; 64]; 64],
             cap_history: [[[[0i32; 6]; 64]; 6]; 2],
             stack: [PlyInfo::default(); 128],
@@ -500,6 +572,8 @@ pub fn bench(atk: &AttackTables, z: &Zobrist, depth: u32) {
             EngineOptions::default(),
             None,
             &no_stop,
+            0,
+            i as u64 + 1,
         );
         let result = search(&mut board, &mut ctx);
         total_nodes += result.nodes;
@@ -548,8 +622,12 @@ fn lazy_smp_search(board: &mut Board, ctx: &mut SearchContext, threads: usize) -
     let contempt = ctx.contempt;
     let syzygy = ctx.syzygy;
     let stop_flag = ctx.stop_flag;
+    let game_id = ctx.game_id;
+    let search_id = ctx.search_id;
     let mut worker_options = ctx.options.clone();
     worker_options.search.threads = 1;
+    worker_options.criticality.log_dir.clear();
+    worker_options.criticality.probe_permille = 0;
 
     std::thread::scope(|scope| {
         let mut handles = Vec::with_capacity(threads.saturating_sub(1));
@@ -568,6 +646,8 @@ fn lazy_smp_search(board: &mut Board, ctx: &mut SearchContext, threads: usize) -
                     worker_options,
                     syzygy,
                     stop_flag,
+                    game_id,
+                    search_id,
                 );
                 worker_ctx.smp_worker_id = worker_id;
                 search_single(&mut worker_board, &mut worker_ctx, false, false)
@@ -702,6 +782,12 @@ fn search_single(
                 best_move = m;
                 break;
             }
+        }
+    }
+
+    if let Some(logger) = &mut ctx.criticality_logger {
+        if let Err(err) = logger.flush() {
+            eprintln!("info string criticality log flush failed: {err}");
         }
     }
 
@@ -878,7 +964,9 @@ fn handle_beta_cutoff(
         return;
     }
     update_killers(ctx, ply, m);
-    update_history(ctx, board.side, m, depth);
+    let bonus = history_delta(depth);
+    let moving_piece = board.sq_piece[move_from(m) as usize];
+    add_history_score(ctx, board.side, moving_piece, m, bonus);
     if ply == 0 || ply >= 128 {
         return;
     }
@@ -931,7 +1019,10 @@ fn score_single_move(
     } else if m == scoring.counter {
         s += 750_000;
     }
-    s += ctx.history[scoring.us][move_from(m) as usize][move_to(m) as usize];
+    let mover = board.sq_piece[move_from(m) as usize];
+    if mover != PIECE_NONE {
+        s += ctx.history[scoring.us][piece_type(mover) as usize][move_to(m) as usize];
+    }
     s
 }
 
@@ -991,6 +1082,7 @@ fn alpha_beta(
         return alpha;
     }
     let beta = beta_md;
+    let is_cut_node = !is_pv && beta == alpha + 1;
 
     let in_check = board.is_in_check(board.side);
 
@@ -1059,6 +1151,10 @@ fn alpha_beta(
             options: &ctx.options,
         },
     );
+    let improving = is_improving(ctx, static_eval, ply);
+    if ply < MAX_PLY {
+        ctx.stack[ply].static_eval = Some(static_eval);
+    }
     // ---- Pruning heuristics (skip in check and PV nodes) ----
 
     if !in_check && !is_pv {
@@ -1089,11 +1185,32 @@ fn alpha_beta(
     let mut best_score = -SCORE_INF;
     let mut bound = Bound::Upper;
     let mut moves_searched = 0;
+    let mut quiet_moves_searched = 0;
     let mut legal_moves = 0;
 
     for i in 0..list.count {
         list.pick_best(i);
         let m = list.moves[i];
+        let node_hash = board.hash;
+        let side_to_move = board.side;
+        let from = move_from(m);
+        let to = move_to(m);
+        let moving_piece = board.sq_piece[from as usize];
+        let prev_static_eval = if ply >= 2 && ply - 2 < MAX_PLY {
+            ctx.stack[ply - 2].static_eval
+        } else {
+            None
+        };
+        let prev_move = if ply > 0 && ply < MAX_PLY {
+            ctx.stack[ply - 1].current_move
+        } else {
+            MOVE_NONE
+        };
+        let counter_move = if prev_move != MOVE_NONE {
+            ctx.counter[move_from(prev_move) as usize][move_to(prev_move) as usize]
+        } else {
+            MOVE_NONE
+        };
 
         // Make move and verify legality
         let undo = board.make_move(m, ctx.z);
@@ -1106,13 +1223,25 @@ fn alpha_beta(
         let is_capture = undo.captured != PIECE_NONE || move_flags(m) == MF_EN_PASSANT;
         let is_promo = move_flags(m) == MF_PROMOTION;
         let gives_check = board.is_in_check(board.side);
-        let _is_killer = ply < 128 && (m == ctx.killers[ply][0] || m == ctx.killers[ply][1]);
+        let mover = board.side.flip() as usize;
+        let history_score = if moving_piece != PIECE_NONE {
+            ctx.history[mover][piece_type(moving_piece) as usize][move_to(m) as usize]
+        } else {
+            0
+        };
+        let is_killer = ply < 128 && (m == ctx.killers[ply][0] || m == ctx.killers[ply][1]);
+        let is_counter = m == counter_move;
+        let is_lmr_quiet = !is_capture && !is_promo && !gives_check;
 
         // ---- Late move reductions (LMR) ----
-        let reduction = compute_lmr_reduction(
+        let lmr = compute_lmr_reduction_details(
             LmrInput {
-                moves_searched,
+                moves_searched: quiet_moves_searched,
                 depth,
+                history_score,
+                is_pv,
+                is_cut_node,
+                improving,
                 is_capture,
                 is_promo,
                 gives_check,
@@ -1120,11 +1249,47 @@ fn alpha_beta(
             },
             ctx,
         );
+        let reduction = lmr.final_reduction;
         if reduction > 0 {
             ctx.stats.lmr_actual_reductions += 1;
         }
 
-        let new_depth = (depth - 1 - reduction).max(0);
+        let new_depth = if reduction > 0 {
+            (depth - 1 - reduction).max(1)
+        } else {
+            depth - 1
+        };
+        let pre_alpha = alpha;
+        let pre_beta = beta;
+        let mut criticality_record = build_criticality_record(
+            ctx,
+            CriticalityRecordInput {
+                enabled: reduction > 0 && !ctx.in_criticality_probe,
+                node_hash,
+                side_to_move,
+                m,
+                ply,
+                from,
+                to,
+                moving_piece,
+                depth,
+                move_index: moves_searched + 1,
+                base_reduction: lmr.base_reduction,
+                final_reduction: reduction,
+                new_depth,
+                history_score,
+                static_eval,
+                prev_static_eval,
+                alpha: pre_alpha,
+                beta: pre_beta,
+                is_pv,
+                is_cut_node,
+                improving,
+                is_killer,
+                is_counter,
+                tt_move_agreement: m == tt_move,
+            },
+        );
 
         // Record the move being searched BEFORE recursing — children read
         // stack[ply].current_move for the counter-move heuristic. (Previously
@@ -1161,6 +1326,9 @@ fn alpha_beta(
                 },
                 &mut child_pv,
             );
+            if let Some(record) = &mut criticality_record {
+                record.reduced_score = Some(s);
+            }
             if !ctx.stopped && s > alpha && (s < beta || reduction > 0) {
                 if reduction > 0 {
                     ctx.stats.lmr_re_searches += 1;
@@ -1178,16 +1346,59 @@ fn alpha_beta(
                     },
                     &mut child_pv,
                 );
+                if let Some(record) = &mut criticality_record {
+                    record.label_source = CriticalityLabelSource::ObservedResearch;
+                    record.full_score = Some(s);
+                }
+            } else if should_run_criticality_probe(
+                ctx, node_hash, m, depth, ply, reduction, s, pre_alpha,
+            ) {
+                child_pv.clear();
+                let was_in_probe = ctx.in_criticality_probe;
+                ctx.in_criticality_probe = true;
+                let full_score = -alpha_beta(
+                    board,
+                    ctx,
+                    SearchNode {
+                        alpha: -beta,
+                        beta: -alpha,
+                        depth: depth - 1,
+                        ply: ply + 1,
+                        is_pv,
+                    },
+                    &mut child_pv,
+                );
+                ctx.in_criticality_probe = was_in_probe;
+                if !ctx.stopped {
+                    if let Some(record) = &mut criticality_record {
+                        record.label_source = CriticalityLabelSource::CounterfactualProbe;
+                        record.full_score = Some(full_score);
+                    }
+                    s = full_score;
+                }
             }
             s
         };
 
+        if !ctx.stopped {
+            if let Some(record) = &criticality_record {
+                write_criticality_record(ctx, record);
+            }
+        }
+
         board.unmake_move(m, &undo, ctx.z);
         moves_searched += 1;
+        if is_lmr_quiet {
+            quiet_moves_searched += 1;
+        }
 
         if ctx.stopped {
             ctx.history_hashes.pop();
             return 0;
+        }
+
+        if is_lmr_quiet && score <= pre_alpha {
+            add_history_score(ctx, side_to_move, moving_piece, m, -history_delta(depth));
         }
 
         if score > best_score {
@@ -1451,17 +1662,33 @@ fn update_killers(ctx: &mut SearchContext, ply: usize, m: Move) {
     }
 }
 
-fn update_history(ctx: &mut SearchContext, color: Color, m: Move, depth: i32) {
-    let from = move_from(m) as usize;
+fn history_delta(depth: i32) -> i32 {
+    depth * depth
+}
+
+fn add_history_score(
+    ctx: &mut SearchContext,
+    color: Color,
+    moving_piece: Piece,
+    m: Move,
+    delta: i32,
+) {
+    if moving_piece == PIECE_NONE {
+        return;
+    }
+    let pt = piece_type(moving_piece) as usize;
     let to = move_to(m) as usize;
     let ci = color as usize;
-    let bonus = depth * depth;
-    ctx.history[ci][from][to] += bonus;
-    if ctx.history[ci][from][to] > HISTORY_OVERFLOW_THRESHOLD {
-        for arr in &mut ctx.history[ci] {
-            for v in arr.iter_mut() {
-                *v /= 2;
-            }
+    ctx.history[ci][pt][to] += delta;
+    if ctx.history[ci][pt][to].abs() > HISTORY_OVERFLOW_THRESHOLD {
+        scale_down_history(ctx, ci);
+    }
+}
+
+fn scale_down_history(ctx: &mut SearchContext, ci: usize) {
+    for piece_history in &mut ctx.history[ci] {
+        for v in piece_history.iter_mut() {
+            *v /= 2;
         }
     }
 }
@@ -1497,8 +1724,7 @@ fn update_cap_history(ctx: &mut SearchContext, color: Color, m: Move, board: &Bo
     }
 }
 
-/// Compute LMR reduction for a move. Returns 0 if LMR doesn't apply.
-fn compute_lmr_reduction(input: LmrInput, ctx: &mut SearchContext) -> i32 {
+fn compute_lmr_reduction_details(input: LmrInput, ctx: &mut SearchContext) -> LmrReduction {
     if input.moves_searched < LMR_FULL_DEPTH_MOVES
         || input.depth < LMR_MIN_DEPTH
         || input.is_capture
@@ -1506,10 +1732,124 @@ fn compute_lmr_reduction(input: LmrInput, ctx: &mut SearchContext) -> i32 {
         || input.gives_check
         || input.in_check
     {
-        return 0;
+        return LmrReduction {
+            base_reduction: 0,
+            final_reduction: 0,
+        };
     }
     ctx.stats.lmr_attempts += 1;
-    1
+    let move_count = input.moves_searched - LMR_FULL_DEPTH_MOVES + 1;
+    let depth_ln = (input.depth as f64).ln();
+    let move_ln = (move_count as f64).ln();
+    let mut reduction = (0.5 + depth_ln * move_ln / LMR_LOG_DIVISOR).floor() as i32;
+    let base_reduction = reduction;
+
+    let history_bonus = input
+        .history_score
+        .clamp(-LMR_HISTORY_CLAMP, LMR_HISTORY_CLAMP)
+        / LMR_HISTORY_NORMALIZER;
+    reduction -= history_bonus;
+
+    if LMR_NODE_TYPE_SCALING {
+        if input.is_pv {
+            reduction = (reduction * 3 + 3) / 4;
+        } else if input.is_cut_node {
+            reduction = (reduction * 23 + 10) / 20;
+        }
+    }
+
+    if input.improving {
+        reduction += LMR_IMPROVING_BONUS;
+    }
+
+    LmrReduction {
+        base_reduction,
+        final_reduction: reduction.clamp(0, input.depth - 2),
+    }
+}
+
+fn is_improving(ctx: &SearchContext, static_eval: Score, ply: usize) -> bool {
+    if ply < 2 || ply - 2 >= MAX_PLY {
+        return false;
+    }
+    ctx.stack[ply - 2]
+        .static_eval
+        .is_some_and(|prev_eval| static_eval > prev_eval)
+}
+
+fn build_criticality_record(
+    ctx: &SearchContext,
+    input: CriticalityRecordInput,
+) -> Option<CriticalityRecord> {
+    if !input.enabled || ctx.criticality_logger.is_none() {
+        return None;
+    }
+    Some(CriticalityRecord {
+        pid: std::process::id(),
+        game_id: ctx.game_id,
+        search_id: ctx.search_id,
+        root_depth: ctx.root_depth,
+        ply: input.ply,
+        node_hash: input.node_hash,
+        side_to_move: input.side_to_move,
+        m: input.m,
+        from: input.from,
+        to: input.to,
+        piece: input.moving_piece,
+        depth: input.depth,
+        move_index: input.move_index,
+        base_reduction: input.base_reduction,
+        final_reduction: input.final_reduction,
+        new_depth: input.new_depth,
+        history_score: input.history_score,
+        static_eval: input.static_eval,
+        prev_static_eval: input.prev_static_eval,
+        alpha: input.alpha,
+        beta: input.beta,
+        is_pv: input.is_pv,
+        is_cut_node: input.is_cut_node,
+        improving: input.improving,
+        is_killer: input.is_killer,
+        is_counter: input.is_counter,
+        tt_move_agreement: input.tt_move_agreement,
+        label_source: CriticalityLabelSource::None,
+        reduced_score: None,
+        full_score: None,
+    })
+}
+
+fn should_run_criticality_probe(
+    ctx: &SearchContext,
+    node_hash: u64,
+    m: Move,
+    depth: i32,
+    ply: usize,
+    reduction: i32,
+    reduced_score: Score,
+    alpha: Score,
+) -> bool {
+    reduction > 0
+        && !ctx.in_criticality_probe
+        && reduced_score <= alpha
+        && ctx.criticality_logger.is_some()
+        && should_probe_criticality(
+            node_hash,
+            m,
+            depth,
+            ply,
+            ctx.search_id,
+            ctx.options.criticality.probe_permille,
+        )
+}
+
+fn write_criticality_record(ctx: &mut SearchContext, record: &CriticalityRecord) {
+    let Some(logger) = &mut ctx.criticality_logger else {
+        return;
+    };
+    if let Err(err) = logger.write(record) {
+        eprintln!("info string criticality log write failed: {err}");
+        ctx.criticality_logger = None;
+    }
 }
 
 // ============================================================
@@ -1727,6 +2067,8 @@ mod tests {
             EngineOptions::default(),
             None,
             stop,
+            0,
+            0,
         )
     }
 
@@ -1745,6 +2087,238 @@ mod tests {
         let board = Board::from_fen(fen).unwrap();
         let m = generated_move(&board, &atk, uci);
         static_exchange_eval(&board, &atk, m)
+    }
+
+    fn lmr_reduction_for(input: LmrInput) -> i32 {
+        let atk = AttackTables::init();
+        let z = Zobrist::new();
+        let mut tt = TranspositionTable::new(1);
+        let stop = AtomicBool::new(false);
+        let mut ctx = test_context(&atk, &z, &mut tt, Limits::default(), &stop);
+        compute_lmr_reduction_details(input, &mut ctx).final_reduction
+    }
+
+    fn reducible_lmr_input(depth: i32, moves_searched: usize) -> LmrInput {
+        LmrInput {
+            moves_searched,
+            depth,
+            history_score: 0,
+            is_pv: false,
+            is_cut_node: false,
+            improving: false,
+            is_capture: false,
+            is_promo: false,
+            gives_check: false,
+            in_check: false,
+        }
+    }
+
+    #[test]
+    fn lmr_keeps_protected_moves_full_depth() {
+        let mut input = reducible_lmr_input(8, LMR_FULL_DEPTH_MOVES);
+        input.is_capture = true;
+        assert_eq!(lmr_reduction_for(input), 0);
+
+        let mut input = reducible_lmr_input(8, LMR_FULL_DEPTH_MOVES);
+        input.gives_check = true;
+        assert_eq!(lmr_reduction_for(input), 0);
+    }
+
+    #[test]
+    fn lmr_scales_with_depth_and_move_count() {
+        let shallow = lmr_reduction_for(reducible_lmr_input(5, LMR_FULL_DEPTH_MOVES + 3));
+        let deep_late = lmr_reduction_for(reducible_lmr_input(12, LMR_FULL_DEPTH_MOVES + 16));
+        assert!(deep_late > shallow);
+    }
+
+    #[test]
+    fn lmr_base_formula_rounds_to_nearest() {
+        assert_eq!(
+            lmr_reduction_for(reducible_lmr_input(3, LMR_FULL_DEPTH_MOVES + 3)),
+            1
+        );
+    }
+
+    #[test]
+    fn lmr_improving_adds_reduction() {
+        let mut input = reducible_lmr_input(8, LMR_FULL_DEPTH_MOVES);
+        assert_eq!(lmr_reduction_for(input), 0);
+        input.improving = true;
+        assert_eq!(lmr_reduction_for(input), 1);
+    }
+
+    #[test]
+    fn lmr_uses_history_to_adjust_reduction() {
+        let mut good_history = reducible_lmr_input(12, LMR_FULL_DEPTH_MOVES + 16);
+        good_history.history_score = LMR_HISTORY_CLAMP;
+        let mut bad_history = good_history;
+        bad_history.history_score = -LMR_HISTORY_CLAMP;
+
+        assert!(lmr_reduction_for(bad_history) > lmr_reduction_for(good_history));
+    }
+
+    #[test]
+    fn quiet_history_updates_the_moving_side() {
+        let atk = AttackTables::init();
+        let z = Zobrist::new();
+        let mut tt = TranspositionTable::new(1);
+        let stop = AtomicBool::new(false);
+        let mut ctx = test_context(&atk, &z, &mut tt, Limits::default(), &stop);
+        let mut board = Board::startpos();
+
+        let white_move = generated_move(&board, &atk, "e2e4");
+        handle_beta_cutoff(&mut ctx, &board, white_move, 1, 6, false);
+        let white_pt = piece_type(board.sq_piece[move_from(white_move) as usize]) as usize;
+        assert!(ctx.history[Color::White as usize][white_pt][move_to(white_move) as usize] > 0);
+        assert_eq!(
+            ctx.history[Color::Black as usize][white_pt][move_to(white_move) as usize],
+            0
+        );
+
+        let undo = board.make_move(white_move, &z);
+        assert_eq!(board.side, Color::Black);
+        let black_move = generated_move(&board, &atk, "e7e5");
+        let black_pt = piece_type(board.sq_piece[move_from(black_move) as usize]) as usize;
+        handle_beta_cutoff(&mut ctx, &board, black_move, 1, 6, false);
+        assert!(ctx.history[Color::Black as usize][black_pt][move_to(black_move) as usize] > 0);
+        assert_eq!(
+            ctx.history[Color::White as usize][black_pt][move_to(black_move) as usize],
+            0
+        );
+        board.unmake_move(white_move, &undo, &z);
+    }
+
+    #[test]
+    fn lmr_history_lookup_after_make_move_uses_the_mover_side() {
+        let atk = AttackTables::init();
+        let z = Zobrist::new();
+        let mut tt = TranspositionTable::new(1);
+        let stop = AtomicBool::new(false);
+        let mut ctx = test_context(&atk, &z, &mut tt, Limits::default(), &stop);
+        let mut board = Board::startpos();
+        let m = generated_move(&board, &atk, "e2e4");
+        let moving_piece = board.sq_piece[move_from(m) as usize];
+
+        add_history_score(&mut ctx, Color::White, moving_piece, m, 1234);
+        let undo = board.make_move(m, &z);
+        assert_eq!(board.side, Color::Black);
+
+        let mover = board.side.flip() as usize;
+        let history_score =
+            ctx.history[mover][piece_type(moving_piece) as usize][move_to(m) as usize];
+        assert_eq!(mover, Color::White as usize);
+        assert_eq!(history_score, 1234);
+
+        board.unmake_move(m, &undo, &z);
+    }
+
+    #[test]
+    fn improving_compares_static_eval_two_plies_back() {
+        let atk = AttackTables::init();
+        let z = Zobrist::new();
+        let mut tt = TranspositionTable::new(1);
+        let stop = AtomicBool::new(false);
+        let mut ctx = test_context(&atk, &z, &mut tt, Limits::default(), &stop);
+        let mut board = Board::startpos();
+
+        let eval0 = evaluate(
+            &board,
+            &EvalContext {
+                atk: &atk,
+                options: &ctx.options,
+            },
+        );
+        ctx.stack[0].static_eval = Some(eval0);
+        assert!(!is_improving(&ctx, eval0, 0));
+        assert!(!is_improving(&ctx, -eval0, 1));
+
+        let null_undo = board.make_null_move(&z);
+        let null_eval = evaluate(
+            &board,
+            &EvalContext {
+                atk: &atk,
+                options: &ctx.options,
+            },
+        );
+        assert_eq!(board.side, Color::Black);
+        assert!(!is_improving(&ctx, null_eval, 1));
+        ctx.stack[1].static_eval = Some(null_eval);
+        board.unmake_null_move(&null_undo);
+
+        let white_move = generated_move(&board, &atk, "e2e4");
+        let undo_white = board.make_move(white_move, &z);
+        let black_move = generated_move(&board, &atk, "e7e5");
+        let undo_black = board.make_move(black_move, &z);
+        assert_eq!(board.side, Color::White);
+
+        let eval2 = evaluate(
+            &board,
+            &EvalContext {
+                atk: &atk,
+                options: &ctx.options,
+            },
+        );
+        assert_eq!(is_improving(&ctx, eval2, 2), eval2 > eval0);
+
+        board.unmake_move(black_move, &undo_black, &z);
+        board.unmake_move(white_move, &undo_white, &z);
+    }
+
+    #[test]
+    fn quiet_history_distribution_is_not_immediately_saturated() {
+        let atk = AttackTables::init();
+        let z = Zobrist::new();
+        let mut tt = TranspositionTable::new(16);
+        let stop = AtomicBool::new(false);
+        let mut ctx = test_context(
+            &atk,
+            &z,
+            &mut tt,
+            Limits {
+                max_depth: 6,
+                ..Limits::default()
+            },
+            &stop,
+        );
+        let mut board = Board::startpos();
+        ctx.root_color = board.side;
+        let mut pv = Vec::new();
+        let _ = alpha_beta(
+            &mut board,
+            &mut ctx,
+            SearchNode {
+                alpha: -SCORE_INF,
+                beta: SCORE_INF,
+                depth: 6,
+                ply: 0,
+                is_pv: true,
+            },
+            &mut pv,
+        );
+
+        let mut white_abs_sum = 0i64;
+        let mut black_abs_sum = 0i64;
+        let mut max_abs = 0i32;
+        let mut nonzero = 0usize;
+        for pt in 0..6 {
+            for to in 0..64 {
+                let white = ctx.history[Color::White as usize][pt][to].abs();
+                let black = ctx.history[Color::Black as usize][pt][to].abs();
+                white_abs_sum += white as i64;
+                black_abs_sum += black as i64;
+                max_abs = max_abs.max(white).max(black);
+                nonzero += usize::from(white != 0) + usize::from(black != 0);
+            }
+        }
+
+        eprintln!(
+            "history distribution: white_abs_sum={white_abs_sum} black_abs_sum={black_abs_sum} max_abs={max_abs} nonzero={nonzero}"
+        );
+
+        assert!(nonzero > 0);
+        assert!(max_abs < LMR_HISTORY_CLAMP);
+        assert!(white_abs_sum > 0);
+        assert!(black_abs_sum > 0);
     }
 
     #[test]

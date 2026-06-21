@@ -133,6 +133,8 @@ struct GoContext<'a> {
     options: EngineOptions,
     syzygy: Option<&'a SyzygyTablebase>,
     stop_flag: &'a std::sync::atomic::AtomicBool,
+    game_id: u64,
+    search_id: u64,
 }
 
 fn handle_go<'a>(tokens: impl Iterator<Item = &'a str>, go: GoContext<'_>) {
@@ -187,6 +189,8 @@ fn handle_go<'a>(tokens: impl Iterator<Item = &'a str>, go: GoContext<'_>) {
         go.options,
         go.syzygy,
         go.stop_flag,
+        go.game_id,
+        go.search_id,
     );
     let result = search(go.board, &mut ctx);
     println!("bestmove {}", move_name(result.best_move));
@@ -206,6 +210,8 @@ pub fn run() {
     let mut contempt = 0i32;
     let mut options = EngineOptions::default();
     let mut syzygy: Option<SyzygyTablebase> = None;
+    let mut game_id = 0u64;
+    let mut search_id = 0u64;
 
     // Input thread: the search blocks the main thread, so "stop"/"quit" must
     // be seen by a reader thread that flips the stop flag immediately.
@@ -248,6 +254,8 @@ pub fn run() {
                 println!("option name Threads type spin default 1 min 1 max 64");
                 println!("option name Contempt type spin default 0 min -100 max 100");
                 println!("option name SyzygyPath type string default <empty>");
+                println!("option name CriticalityLogDir type string default <empty>");
+                println!("option name CriticalityProbePermille type spin default 0 min 0 max 1000");
                 println!(
                     "option name SyzygyProbeDepth type spin default {} min 0 max 64",
                     defaults.syzygy.probe_depth
@@ -269,6 +277,7 @@ pub fn run() {
                 let _ = io::stdout().flush();
             }
             Some("ucinewgame") => {
+                game_id = game_id.wrapping_add(1);
                 board = Board::startpos();
                 position_history.clear();
                 tt.clear();
@@ -280,6 +289,7 @@ pub fn run() {
                 handle_position(tokens, &mut board, &mut position_history, &atk, &z);
             }
             Some("go") => {
+                search_id = search_id.wrapping_add(1);
                 stop_flag.store(false, std::sync::atomic::Ordering::Relaxed);
                 handle_go(
                     tokens,
@@ -293,6 +303,8 @@ pub fn run() {
                         options: options.clone(),
                         syzygy: syzygy.as_ref(),
                         stop_flag: &stop_flag,
+                        game_id,
+                        search_id,
                     },
                 );
             }
