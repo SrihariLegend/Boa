@@ -960,6 +960,11 @@ fn handle_beta_cutoff(
     depth: i32,
     is_capture: bool,
 ) {
+    // Counterfactual probes are shadow-only: they may observe a full-depth
+    // score, but must not train move-ordering heuristics used by the real search.
+    if ctx.in_criticality_probe {
+        return;
+    }
     if is_capture {
         update_cap_history(ctx, board.side, m, board, depth);
         return;
@@ -1354,6 +1359,9 @@ fn alpha_beta(
             } else if should_run_criticality_probe(
                 ctx, node_hash, m, depth, ply, reduction, s, pre_alpha,
             ) {
+                // Shadow-only counterfactual: record the full-depth score, but
+                // keep the reduced score/PV as the actual search result.
+                let reduced_child_pv = child_pv.clone();
                 child_pv.clear();
                 let was_in_probe = ctx.in_criticality_probe;
                 ctx.in_criticality_probe = true;
@@ -1370,12 +1378,12 @@ fn alpha_beta(
                     &mut child_pv,
                 );
                 ctx.in_criticality_probe = was_in_probe;
+                child_pv = reduced_child_pv;
                 if !ctx.stopped {
                     if let Some(record) = &mut criticality_record {
                         record.label_source = CriticalityLabelSource::CounterfactualProbe;
                         record.full_score = Some(full_score);
                     }
-                    s = full_score;
                 }
             }
             s
@@ -1398,7 +1406,7 @@ fn alpha_beta(
             return 0;
         }
 
-        if is_lmr_quiet && score <= pre_alpha {
+        if !ctx.in_criticality_probe && is_lmr_quiet && score <= pre_alpha {
             add_history_score(ctx, side_to_move, moving_piece, m, -history_delta(depth));
         }
 
@@ -1439,14 +1447,17 @@ fn alpha_beta(
     // Pop our position hash from history
     ctx.history_hashes.pop();
 
-    // TT store (mate scores converted to node-relative distance)
-    ctx.tt.store(
-        board.hash,
-        score_to_tt(best_score, ply),
-        best_move,
-        depth as i8,
-        bound,
-    );
+    // TT store (mate scores converted to node-relative distance). Do not let
+    // shadow probes seed the TT for the real search after they return.
+    if !ctx.in_criticality_probe {
+        ctx.tt.store(
+            board.hash,
+            score_to_tt(best_score, ply),
+            best_move,
+            depth as i8,
+            bound,
+        );
+    }
 
     best_score
 }
