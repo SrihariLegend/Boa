@@ -76,10 +76,10 @@ const LMR_NODE_TYPE_SCALING: bool = true;
 ///
 /// This is the raw full logistic model trained from the 200-game post-integration
 /// shadow-probe dataset at analysis/criticality/2026-06-21_093900804.
-/// We use it only as a ranker: moves at or above the validation P99 score get
+/// We use it only as a ranker: moves at or above the validation P97 score get
 /// one ply of reduction protection.  Do not use the calibrated probability for
 /// continuous scaling unless calibration improves materially.
-const CRITICALITY_P99_LOGIT: f64 = -2.689_557_247_165_626;
+const CRITICALITY_P99_LOGIT: f64 = -2.996_526_340_703_860_5;
 const CRITICALITY_INTERCEPT: f64 = -3.815_606_153_861_211_6;
 
 /// Quiescence delta pruning margin (centipawns).
