@@ -1838,9 +1838,7 @@ fn write_criticality_record(ctx: &mut SearchContext, record: &CriticalityRecord)
     let Some(logger) = &mut ctx.criticality_logger else {
         return;
     };
-    if let Err(err) = logger.write(record) {
-        eprintln!("info string criticality log write failed: {err}");
-        ctx.criticality_logger = None;
+        println!("info string criticality log write failed: {err}");
     }
 }
 
