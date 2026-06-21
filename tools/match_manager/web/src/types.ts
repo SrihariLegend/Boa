@@ -6,8 +6,8 @@ export type EngineMeta = {
 };
 
 export type EngineSpec =
-  | { type: "snapshot"; name: string; extra_options?: string }
-  | { type: "stockfish"; elo: number; extra_options?: string };
+  | {type: "snapshot"; name: string; extra_options?: string}
+  | {type: "stockfish"; elo: number; extra_options?: string};
 
 export type MatchSettings = {
   games: number;
@@ -44,14 +44,6 @@ export type MatchResults = {
 
 export type MatchStatus = "pending" | "running" | "finished" | "stopped" | "interrupted" | "error";
 
-export type PersistedStatus = {
-  status?: MatchStatus;
-  error?: string | null;
-  results?: Partial<MatchResults>;
-  started?: string | null;
-  finished?: string | null;
-};
-
 export type MatchSummary = {
   id: string;
   white: EngineSpec;
@@ -79,4 +71,9 @@ export type GameDetail = {
   sans: string[];
   fens: string[];
   pgn: string;
+};
+
+export type MatchDetailResponse = {
+  summary: MatchSummary;
+  games: GameRow[];
 };

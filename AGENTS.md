@@ -1,5 +1,7 @@
 # Repository Guidelines
+NEVER READ LOGS OR BIG ARTIFACTS DIRECTYL!!! THEY CONSUME TOO MUCH TOKENS AND POISION THE CONTEXT!!!
 
+WHEN YOU ABSOULTELY MUST READ LOGS, USE SCPRITS TO FILTER!!! DO NOT EVER RUN CUTECHESS OR ANY MATCH MANGERS!!!
 ## Project Structure & Module Organization
 
 Boa is a UCI chess engine written in Rust. Core engine code lives in `src/`: `main.rs` starts the UCI loop, `uci.rs` handles protocol commands, `board.rs` and `movegen.rs` model positions and legal moves, `search.rs` contains alpha-beta search, `eval.rs` contains evaluation, and `tt.rs` implements the transposition table. Reference game archives are in `games/`. Tooling lives under `tools/`, including `tools/openings.epd` and the TypeScript terminal Match Manager in `tools/match_manager/src/`.
@@ -21,8 +23,6 @@ Use Rust 2021 idioms and `rustfmt` formatting. Keep modules focused on their che
 ## Testing Guidelines
 
 Add Rust tests beside the code under `#[cfg(test)] mod tests`, especially for evaluation and search edge cases. Use position-driven assertions when possible and include regression tests for bug fixes. Run `cargo test` before submitting engine changes. For Match Manager changes, run `npm run check`; add focused tests only if a test framework is introduced.
-
-Engine feature and optimization changes must also be validated through Match Manager with either an SPRT run or a non-regression test. Match Manager is an interactive terminal UI, so document the required run and ask the user to execute it when agent automation cannot drive the UI reliably.
 
 ## Commit & Pull Request Guidelines
 

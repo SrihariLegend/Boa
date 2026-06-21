@@ -13,6 +13,10 @@
     "build": "tsc",
     "start": "node dist/cli.js",
     "dev": "tsx src/cli.tsx",
+    "web": "./run-web.sh",
+    "server:dev": "tsx src/server.ts",
+    "web:dev": "npm --prefix web run dev",
+    "web:build": "npm --prefix web run build",
     "ablate": "tsx src/ablation.ts",
     "check": "tsc --noEmit"
   },

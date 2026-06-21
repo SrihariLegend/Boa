@@ -7,6 +7,7 @@ pub struct EngineOptions {
     pub eval: EvalOptions,
     pub search: SearchOptions,
     pub syzygy: SyzygyOptions,
+    pub criticality: CriticalityOptions,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -35,12 +36,19 @@ pub struct SyzygyOptions {
     pub fifty_move_rule: bool,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CriticalityOptions {
+    pub log_dir: String,
+    pub probe_permille: u32,
+}
+
 impl Default for EngineOptions {
     fn default() -> Self {
         EngineOptions {
             eval: EvalOptions::default(),
             search: SearchOptions::default(),
             syzygy: SyzygyOptions::default(),
+            criticality: CriticalityOptions::default(),
         }
     }
 }
@@ -80,6 +88,21 @@ impl Default for SyzygyOptions {
     }
 }
 
+impl Default for CriticalityOptions {
+    fn default() -> Self {
+        let log_dir = std::env::var("BOA_CRITICALITY_LOG_DIR").unwrap_or_default();
+        let probe_permille = std::env::var("BOA_CRITICALITY_PROBE_PERMILLE")
+            .ok()
+            .and_then(|value| value.parse::<u32>().ok())
+            .unwrap_or(0)
+            .clamp(0, 1000);
+        CriticalityOptions {
+            log_dir,
+            probe_permille,
+        }
+    }
+}
+
 impl EngineOptions {
     pub fn set_uci_option(&mut self, name: &str, value: &str) -> bool {
         let key = normalize_option_name(name);
@@ -101,6 +124,13 @@ impl EngineOptions {
             "syzygyprobedepth" => set_u32(&mut self.syzygy.probe_depth, value, 0, 64),
             "syzygyprobelimit" => set_usize(&mut self.syzygy.probe_limit, value, 0, 6),
             "syzygy50moverule" => set_bool(&mut self.syzygy.fifty_move_rule, value),
+            "criticalitylogdir" => {
+                self.criticality.log_dir = value.to_string();
+                true
+            }
+            "criticalityprobepermille" => {
+                set_u32(&mut self.criticality.probe_permille, value, 0, 1000)
+            }
             _ => false,
         }
     }
@@ -185,6 +215,9 @@ mod tests {
 
         assert!(options.set_uci_option("Syzygy Path", "/tmp/tb"));
         assert_eq!(options.syzygy.path, "/tmp/tb");
+
+        assert!(options.set_uci_option("Criticality Log Dir", "/tmp/criticality"));
+        assert_eq!(options.criticality.log_dir, "/tmp/criticality");
     }
 
     #[test]
@@ -199,5 +232,8 @@ mod tests {
 
         assert!(options.set_uci_option("Syzygy Probe Limit", "99"));
         assert_eq!(options.syzygy.probe_limit, 6);
+
+        assert!(options.set_uci_option("Criticality Probe Permille", "2000"));
+        assert_eq!(options.criticality.probe_permille, 1000);
     }
 }

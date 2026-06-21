@@ -3,6 +3,7 @@
 
 mod board;
 mod config;
+mod criticality;
 mod diagnostics;
 mod eval;
 mod movegen;

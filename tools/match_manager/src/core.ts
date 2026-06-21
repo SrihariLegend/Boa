@@ -454,7 +454,7 @@ export class ManagedMatch extends EventEmitter {
       replay.move(san);
       fens.push(replay.fen());
     }
-    return {headers, sans, fens};
+    return {headers, sans, fens, pgn: gameText};
   }
 }
 
