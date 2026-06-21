@@ -44,7 +44,7 @@ export function NewMatchForm({engines, navigate, refresh}: {engines: EngineMeta[
 
   return (
     <form className="panel page-stack" onSubmit={submit}>
-      <div className="section-heading"><div><p className="eyebrow">Launch cutechess</p><h1>New Match</h1></div><button className="primary" disabled={busy}>{busy ? "Starting…" : "Start Match"}</button></div>
+      <div className="section-heading"><div><p className="eyebrow">Launch cutechess</p><h1>New Match</h1></div><button className="primary" disabled={busy || (white.type === "snapshot" && engines.length === 0)}>{busy ? "Starting…" : "Start Match"}</button></div>
       {error && <div className="alert">{error}</div>}
       {engines.length === 0 && <div className="alert">No engine snapshots found. Import or snapshot an engine first.</div>}
       <section className="form-grid">
