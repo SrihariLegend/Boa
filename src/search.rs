@@ -412,12 +412,7 @@ impl<'a> SearchContext<'a> {
         game_id: u64,
         search_id: u64,
     ) -> Self {
-        let criticality_logger = match CriticalityLogger::open(&options.criticality.log_dir) {
-            Ok(logger) => logger,
-            Err(err) => {
-                eprintln!("info string CriticalityLogDir error: {err}");
-                None
-            }
+                println!("info string CriticalityLogDir error: {err}");
         };
         SearchContext {
             atk,
