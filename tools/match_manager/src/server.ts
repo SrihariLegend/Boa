@@ -46,7 +46,15 @@ function serveStatic(req: http.IncomingMessage, res: http.ServerResponse): void 
   }
 
   const url = new URL(req.url ?? "/", "http://127.0.0.1");
-  const requested = url.pathname === "/" ? "index.html" : decodeURIComponent(url.pathname.slice(1));
+  let requested = "index.html";
+  if (url.pathname !== "/") {
+    try {
+      requested = decodeURIComponent(url.pathname.slice(1));
+    } catch {
+      res.writeHead(400).end("Bad request");
+      return;
+    }
+  }
   const file = path.resolve(WEB_DIST, requested);
   const root = path.resolve(WEB_DIST);
   const target = file.startsWith(`${root}${path.sep}`) || file === root ? file : path.join(root, "index.html");
