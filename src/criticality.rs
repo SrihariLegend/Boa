@@ -89,11 +89,13 @@ pub struct CriticalityRecord {
 
 impl CriticalityRecord {
     pub fn header() -> &'static str {
-        "schema_version,pid,game_id,search_id,root_depth,ply,node_hash,side_to_move,move_uci,\
-         from,to,piece_type,depth,move_index,base_reduction,final_reduction,new_depth,\
-         history_score,static_eval,has_prev_static_eval,prev_static_eval,static_eval_delta,\
-         alpha,beta,is_pv,is_cut_node,improving,is_killer,is_counter,tt_move_agreement,\
-         label_source,reduced_score,full_score,score_delta_cp,reduced_effect,full_effect,bound_changed"
+        concat!(
+            "schema_version,pid,game_id,search_id,root_depth,ply,node_hash,side_to_move,move_uci,",
+            "from,to,piece_type,depth,move_index,base_reduction,final_reduction,new_depth,",
+            "history_score,static_eval,has_prev_static_eval,prev_static_eval,static_eval_delta,",
+            "alpha,beta,is_pv,is_cut_node,improving,is_killer,is_counter,tt_move_agreement,",
+            "label_source,reduced_score,full_score,score_delta_cp,reduced_effect,full_effect,bound_changed",
+        )
     }
 
     pub fn to_csv_row(&self) -> String {
