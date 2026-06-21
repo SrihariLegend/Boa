@@ -72,6 +72,16 @@ const LMR_IMPROVING_BONUS: i32 = 0;
 /// LMR: whether to scale reductions by PV/cut-node type.
 const LMR_NODE_TYPE_SCALING: bool = true;
 
+/// Conservative learned-criticality protection for LMR quiets.
+///
+/// This is the calibrated full logistic model trained from the 50-game
+/// shadow-probe dataset at analysis/criticality/2026-06-21_070746351.
+/// We use it only as a ranker: moves at or above the validation P99 score get
+/// one ply of reduction protection.  Do not use the calibrated probability for
+/// continuous scaling unless calibration improves materially.
+const CRITICALITY_P99_LOGIT: f64 = -3.019_132_799_964_344;
+const CRITICALITY_INTERCEPT: f64 = -4.044_814_327_570_648_5;
+
 /// Quiescence delta pruning margin (centipawns).
 /// If stand_pat + capture_value + margin < alpha, skip. ~200 is standard (SF, CPW).
 const DELTA_PRUNING_MARGIN: i32 = 200;
@@ -299,11 +309,23 @@ struct MoveScoreContext {
 #[derive(Clone, Copy)]
 struct LmrInput {
     moves_searched: usize,
+    move_index: usize,
+    ply: usize,
     depth: i32,
     history_score: i32,
+    static_eval: Score,
+    prev_static_eval: Option<Score>,
+    alpha: Score,
+    beta: Score,
+    root_depth: i32,
+    side_to_move: Color,
+    moving_piece: Piece,
     is_pv: bool,
     is_cut_node: bool,
     improving: bool,
+    is_killer: bool,
+    is_counter: bool,
+    tt_move_agreement: bool,
     is_capture: bool,
     is_promo: bool,
     gives_check: bool,
@@ -1243,11 +1265,23 @@ fn alpha_beta(
         let lmr = compute_lmr_reduction_details(
             LmrInput {
                 moves_searched: quiet_moves_searched,
+                move_index: moves_searched + 1,
+                ply,
                 depth,
                 history_score,
+                static_eval,
+                prev_static_eval,
+                alpha,
+                beta,
+                root_depth: ctx.root_depth,
+                side_to_move,
+                moving_piece,
                 is_pv,
                 is_cut_node,
                 improving,
+                is_killer,
+                is_counter,
+                tt_move_agreement: m == tt_move,
                 is_capture,
                 is_promo,
                 gives_check,
@@ -1772,9 +1806,80 @@ fn compute_lmr_reduction_details(input: LmrInput, ctx: &mut SearchContext) -> Lm
         reduction += LMR_IMPROVING_BONUS;
     }
 
+    let pre_protection_reduction = reduction.clamp(0, input.depth - 2);
+    if pre_protection_reduction > 0
+        && criticality_score(input, base_reduction, pre_protection_reduction)
+            >= CRITICALITY_P99_LOGIT
+    {
+        reduction -= 1;
+    }
+
     LmrReduction {
         base_reduction,
         final_reduction: reduction.clamp(0, input.depth - 2),
+    }
+}
+
+fn criticality_score(input: LmrInput, base_reduction: i32, final_reduction: i32) -> f64 {
+    let new_depth = if final_reduction > 0 {
+        (input.depth - 1 - final_reduction).max(1)
+    } else {
+        input.depth - 1
+    };
+    let prev_static_eval = input.prev_static_eval.unwrap_or(0);
+    let static_eval_delta = input
+        .prev_static_eval
+        .map_or(0, |prev| input.static_eval - prev);
+    let piece = if input.moving_piece == PIECE_NONE {
+        PieceType::None
+    } else {
+        piece_type(input.moving_piece)
+    };
+
+    CRITICALITY_INTERCEPT
+        + 0.349_756_222_304_538_9 * (input.root_depth as f64 / 16.0)
+        + 1.223_292_863_816_158_6 * (input.ply as f64 / 32.0)
+        - 1.201_031_168_132_286_7 * (input.depth as f64 / 16.0)
+        - 0.594_661_753_095_014_7 * (input.move_index as f64 / 32.0)
+        + 0.609_953_575_560_068 * (base_reduction as f64 / 4.0)
+        - 0.342_892_384_756_693_5 * (final_reduction as f64 / 4.0)
+        - 1.305_839_904_608_567_8 * (new_depth as f64 / 16.0)
+        + 1.115_082_337_109_035_3 * normalized_history(input.history_score)
+        + 6.406_591_351_129_237 * normalized_score(input.static_eval)
+        - 0.258_755_620_660_264_6 * bool_feature(input.prev_static_eval.is_some())
+        + 1.827_496_427_455_566_7 * normalized_score(prev_static_eval)
+        + 1.890_272_758_156_488_4 * normalized_score(static_eval_delta)
+        - 6.777_513_630_884_668 * normalized_score(input.alpha)
+        - 0.416_727_634_367_547_73 * normalized_score(input.beta)
+        + 0.433_588_804_970_126_64 * bool_feature(input.is_pv)
+        - 0.433_588_804_970_126_64 * bool_feature(input.is_cut_node)
+        + 0.243_959_691_788_909_06 * bool_feature(input.improving)
+        + 2.597_772_761_945_919_7 * bool_feature(input.is_counter)
+        + 0.014_337_933_951_019_434 * bool_feature(input.side_to_move == Color::Black)
+        + 0.274_829_658_106_613_86 * bool_feature(piece == PieceType::Pawn)
+        - 0.397_538_295_037_103_9 * bool_feature(piece == PieceType::Knight)
+        - 0.068_090_285_752_410_79 * bool_feature(piece == PieceType::Bishop)
+        + 0.007_469_540_712_140_156 * bool_feature(piece == PieceType::Rook)
+        - 0.353_111_579_058_645_93 * bool_feature(piece == PieceType::Queen)
+        + 0.108_614_123_460_093_65 * bool_feature(piece == PieceType::King)
+        // The trained weights for is_killer and tt_move_agreement are exactly zero.
+        + 0.0 * bool_feature(input.is_killer)
+        + 0.0 * bool_feature(input.tt_move_agreement)
+}
+
+fn normalized_score(score: Score) -> f64 {
+    score.clamp(-2_000, 2_000) as f64 / 2_000.0
+}
+
+fn normalized_history(history_score: i32) -> f64 {
+    history_score.clamp(-16_384, 16_384) as f64 / 16_384.0
+}
+
+fn bool_feature(value: bool) -> f64 {
+    if value {
+        1.0
+    } else {
+        0.0
     }
 }
 
@@ -2111,11 +2216,23 @@ mod tests {
     fn reducible_lmr_input(depth: i32, moves_searched: usize) -> LmrInput {
         LmrInput {
             moves_searched,
+            move_index: moves_searched,
+            ply: 0,
             depth,
             history_score: 0,
+            static_eval: 0,
+            prev_static_eval: None,
+            alpha: 0,
+            beta: 0,
+            root_depth: depth,
+            side_to_move: Color::White,
+            moving_piece: make_piece(Color::White, PieceType::Pawn),
             is_pv: false,
             is_cut_node: false,
             improving: false,
+            is_killer: false,
+            is_counter: false,
+            tt_move_agreement: false,
             is_capture: false,
             is_promo: false,
             gives_check: false,
@@ -2167,6 +2284,27 @@ mod tests {
         let neutral_history = lmr_reduction_for(reducible_lmr_input(12, LMR_FULL_DEPTH_MOVES + 16));
         assert_eq!(lmr_reduction_for(bad_history), neutral_history);
         assert!(lmr_reduction_for(good_history) < neutral_history);
+    }
+
+    #[test]
+    fn lmr_applies_learned_criticality_p99_protection() {
+        let baseline = reducible_lmr_input(12, LMR_FULL_DEPTH_MOVES + 16);
+        let baseline_reduction = lmr_reduction_for(baseline);
+        assert!(baseline_reduction > 0);
+
+        let mut critical = baseline;
+        critical.ply = 20;
+        critical.static_eval = 2_000;
+        critical.prev_static_eval = Some(-2_000);
+        critical.alpha = -2_000;
+        critical.beta = -1_900;
+        critical.is_counter = true;
+
+        assert!(
+            criticality_score(critical, baseline_reduction, baseline_reduction)
+                >= CRITICALITY_P99_LOGIT
+        );
+        assert_eq!(lmr_reduction_for(critical), baseline_reduction - 1);
     }
 
     #[test]

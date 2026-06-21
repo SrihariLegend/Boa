@@ -52,6 +52,7 @@ FEATURES_HISTORY_ONLY = ["history_score"]
 
 SCORE_CLIP = 2000.0
 HISTORY_CLIP = 16384.0
+SCORE_PERCENTILES = [50.0, 75.0, 90.0, 95.0, 97.0, 99.0, 99.5]
 
 
 def main() -> None:
@@ -128,8 +129,10 @@ def main() -> None:
             val_mask,
             test_mask,
             pred,
+            logits,
         )
         metrics["platt"] = platt_to_json(platt)
+        calibrated_logits = platt["intercept"] + platt["slope"] * logits
         metrics["calibrated"] = build_result_metrics(
             features,
             model,
@@ -140,6 +143,7 @@ def main() -> None:
             val_mask,
             test_mask,
             pred_platt,
+            calibrated_logits,
             platt,
         )
         results[name] = metrics
@@ -171,6 +175,7 @@ def build_result_metrics(
     val_mask: np.ndarray,
     test_mask: np.ndarray,
     pred: np.ndarray,
+    score: np.ndarray,
     platt: dict[str, float] | None = None,
 ) -> dict[str, object]:
     weights_json = model_to_weights(model, features)
@@ -183,6 +188,20 @@ def build_result_metrics(
             "test": metrics_for(y[test_mask], pred[test_mask], weights[test_mask]),
             "by_source_test": {},
             "weights": weights_json,
+            "criticality_thresholds": criticality_thresholds(score[val_mask], weights[val_mask]),
+            "score_percentiles": {
+                "train": percentiles(score[train_mask]),
+                "validation": percentiles(score[val_mask]),
+                "test": percentiles(score[test_mask]),
+            },
+            "weighted_score_percentiles": {
+                "train": weighted_percentiles(score[train_mask], weights[train_mask]),
+                "validation": weighted_percentiles(score[val_mask], weights[val_mask]),
+                "test": weighted_percentiles(score[test_mask], weights[test_mask]),
+            },
+            "validation_score_buckets": score_buckets(
+                y[val_mask], pred[val_mask], score[val_mask], weights[val_mask]
+            ),
     }
     by_source = metrics["by_source_test"]
     assert isinstance(by_source, dict)
@@ -374,6 +393,102 @@ def calibration_bins(y: np.ndarray, pred: np.ndarray, weights: np.ndarray, bins:
             }
         )
     return out
+
+
+def percentiles(values: np.ndarray) -> dict[str, float]:
+    if len(values) == 0:
+        return {}
+    qs = np.percentile(values, SCORE_PERCENTILES)
+    return {percentile_key(p): float(q) for p, q in zip(SCORE_PERCENTILES, qs)}
+
+
+def weighted_percentiles(values: np.ndarray, weights: np.ndarray) -> dict[str, float]:
+    if len(values) == 0:
+        return {}
+    order = np.argsort(values)
+    values = values[order]
+    weights = weights[order]
+    total = float(weights.sum())
+    if total <= 0.0:
+        return percentiles(values)
+    cdf = np.cumsum(weights) / total
+    return {
+        percentile_key(p): float(values[min(int(np.searchsorted(cdf, p / 100.0, side="left")), len(values) - 1)])
+        for p in SCORE_PERCENTILES
+    }
+
+
+def criticality_thresholds(validation_score: np.ndarray, validation_weights: np.ndarray) -> dict[str, float]:
+    out = {f"validation_{key}": value for key, value in percentiles(validation_score).items()}
+    out.update(
+        {
+            f"weighted_validation_{key}": value
+            for key, value in weighted_percentiles(validation_score, validation_weights).items()
+        }
+    )
+    return out
+
+
+def score_buckets(
+    y: np.ndarray,
+    pred: np.ndarray,
+    score: np.ndarray,
+    weights: np.ndarray,
+) -> list[dict[str, float | int | str | None]]:
+    if len(score) == 0:
+        return []
+    thresholds = percentiles(score)
+    edges = [
+        ("bottom_to_p50", -math.inf, thresholds["p50"]),
+        ("p50_to_p75", thresholds["p50"], thresholds["p75"]),
+        ("p75_to_p90", thresholds["p75"], thresholds["p90"]),
+        ("p90_to_p95", thresholds["p90"], thresholds["p95"]),
+        ("p95_to_p97", thresholds["p95"], thresholds["p97"]),
+        ("p97_to_p99", thresholds["p97"], thresholds["p99"]),
+        ("p99_to_p99_5", thresholds["p99"], thresholds["p99_5"]),
+        ("top_p99_5", thresholds["p99_5"], math.inf),
+    ]
+    out: list[dict[str, float | int | str | None]] = []
+    for index, (name, lower, upper) in enumerate(edges):
+        if index == 0:
+            mask = score <= upper
+        elif index == len(edges) - 1:
+            mask = score > lower
+        else:
+            mask = (score > lower) & (score <= upper)
+        if not np.any(mask):
+            out.append(
+                {
+                    "bucket": name,
+                    "n": 0,
+                    "weight": 0.0,
+                    "lower": finite_or_none(lower),
+                    "upper": finite_or_none(upper),
+                }
+            )
+            continue
+        w = weights[mask]
+        out.append(
+            {
+                "bucket": name,
+                "n": int(mask.sum()),
+                "weight": float(w.sum()),
+                "lower": finite_or_none(lower),
+                "upper": finite_or_none(upper),
+                "avg_score": float(np.average(score[mask], weights=w)),
+                "avg_pred": float(np.average(pred[mask], weights=w)),
+                "empirical": float(np.average(y[mask], weights=w)),
+            }
+        )
+    return out
+
+
+def finite_or_none(value: float) -> float | None:
+    return float(value) if math.isfinite(value) else None
+
+
+def percentile_key(percentile: float) -> str:
+    return f"p{percentile:g}".replace(".", "_")
 
 
 def auc(y: np.ndarray, score: np.ndarray, weights: np.ndarray) -> float:
