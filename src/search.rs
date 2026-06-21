@@ -780,10 +780,7 @@ fn search_single(
         }
     }
 
-    if let Some(logger) = &mut ctx.criticality_logger {
-        if let Err(err) = logger.flush() {
-            eprintln!("info string criticality log flush failed: {err}");
-        }
+            println!("info string criticality log flush failed: {err}");
     }
 
     SearchResult {
