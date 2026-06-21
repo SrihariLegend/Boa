@@ -413,7 +413,12 @@ impl<'a> SearchContext<'a> {
         game_id: u64,
         search_id: u64,
     ) -> Self {
-                println!("info string CriticalityLogDir error: {err}");
+        let criticality_logger = match CriticalityLogger::open(&options.criticality.log_dir) {
+            Ok(logger) => logger,
+            Err(err) => {
+                eprintln!("info string CriticalityLogDir error: {err}");
+                None
+            }
         };
         SearchContext {
             atk,
@@ -781,7 +786,10 @@ fn search_single(
         }
     }
 
-            println!("info string criticality log flush failed: {err}");
+    if let Some(logger) = &mut ctx.criticality_logger {
+        if let Err(err) = logger.flush() {
+            eprintln!("info string criticality log flush failed: {err}");
+        }
     }
 
     SearchResult {
@@ -1837,7 +1845,9 @@ fn write_criticality_record(ctx: &mut SearchContext, record: &CriticalityRecord)
     let Some(logger) = &mut ctx.criticality_logger else {
         return;
     };
-        println!("info string criticality log write failed: {err}");
+    if let Err(err) = logger.write(record) {
+        eprintln!("info string criticality log write failed: {err}");
+        ctx.criticality_logger = None;
     }
 }
 
