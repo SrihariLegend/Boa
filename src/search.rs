@@ -66,7 +66,8 @@ const LMR_HISTORY_CLAMP: i32 = 8_192;
 const LMR_HISTORY_NORMALIZER: i32 = 4_096;
 
 /// LMR: extra reduction when the static eval is improving for side to move.
-const LMR_IMPROVING_BONUS: i32 = 1;
+/// Disabled for the learned-criticality baseline; improving remains logged as a feature.
+const LMR_IMPROVING_BONUS: i32 = 0;
 
 /// LMR: whether to scale reductions by PV/cut-node type.
 const LMR_NODE_TYPE_SCALING: bool = true;
@@ -1744,10 +1745,8 @@ fn compute_lmr_reduction_details(input: LmrInput, ctx: &mut SearchContext) -> Lm
     let mut reduction = (0.5 + depth_ln * move_ln / LMR_LOG_DIVISOR).floor() as i32;
     let base_reduction = reduction;
 
-    let history_bonus = input
-        .history_score
-        .clamp(-LMR_HISTORY_CLAMP, LMR_HISTORY_CLAMP)
-        / LMR_HISTORY_NORMALIZER;
+    let history_bonus =
+        input.history_score.max(0).clamp(0, LMR_HISTORY_CLAMP) / LMR_HISTORY_NORMALIZER;
     reduction -= history_bonus;
 
     if LMR_NODE_TYPE_SCALING {
@@ -2140,11 +2139,11 @@ mod tests {
     }
 
     #[test]
-    fn lmr_improving_adds_reduction() {
+    fn lmr_improving_is_logged_but_does_not_change_reduction() {
         let mut input = reducible_lmr_input(8, LMR_FULL_DEPTH_MOVES);
         assert_eq!(lmr_reduction_for(input), 0);
         input.improving = true;
-        assert_eq!(lmr_reduction_for(input), 1);
+        assert_eq!(lmr_reduction_for(input), 0);
     }
 
     #[test]
@@ -2154,7 +2153,9 @@ mod tests {
         let mut bad_history = good_history;
         bad_history.history_score = -LMR_HISTORY_CLAMP;
 
-        assert!(lmr_reduction_for(bad_history) > lmr_reduction_for(good_history));
+        let neutral_history = lmr_reduction_for(reducible_lmr_input(12, LMR_FULL_DEPTH_MOVES + 16));
+        assert_eq!(lmr_reduction_for(bad_history), neutral_history);
+        assert!(lmr_reduction_for(good_history) < neutral_history);
     }
 
     #[test]
