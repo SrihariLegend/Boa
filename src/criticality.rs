@@ -53,8 +53,22 @@ impl CriticalityLabelSource {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CriticalityDecisionKind {
+    Lmr,
+}
+
+impl CriticalityDecisionKind {
+    fn as_str(self) -> &'static str {
+        match self {
+            CriticalityDecisionKind::Lmr => "lmr",
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct CriticalityRecord {
+    pub decision_kind: CriticalityDecisionKind,
     pub pid: u32,
     pub game_id: u64,
     pub search_id: u64,
@@ -90,7 +104,7 @@ pub struct CriticalityRecord {
 impl CriticalityRecord {
     pub fn header() -> &'static str {
         concat!(
-            "schema_version,pid,game_id,search_id,root_depth,ply,node_hash,side_to_move,move_uci,",
+            "schema_version,decision_kind,pid,game_id,search_id,root_depth,ply,node_hash,side_to_move,move_uci,",
             "from,to,piece_type,depth,move_index,base_reduction,final_reduction,new_depth,",
             "history_score,static_eval,has_prev_static_eval,prev_static_eval,static_eval_delta,",
             "alpha,beta,is_pv,is_cut_node,improving,is_killer,is_counter,tt_move_agreement,",
@@ -138,6 +152,7 @@ impl CriticalityRecord {
 
         [
             CRITICALITY_SCHEMA_VERSION.to_string(),
+            self.decision_kind.as_str().to_string(),
             self.pid.to_string(),
             self.game_id.to_string(),
             self.search_id.to_string(),
@@ -286,6 +301,7 @@ mod tests {
     fn record_row_matches_header_width() {
         let m = make_move(12, 28);
         let record = CriticalityRecord {
+            decision_kind: CriticalityDecisionKind::Lmr,
             pid: 1,
             game_id: 2,
             search_id: 3,
