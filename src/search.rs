@@ -74,13 +74,13 @@ const LMR_NODE_TYPE_SCALING: bool = true;
 
 /// Conservative learned-criticality protection for LMR quiets.
 ///
-/// This is the calibrated full logistic model trained from the 50-game
-/// shadow-probe dataset at analysis/criticality/2026-06-21_070746351.
-/// We use it only as a ranker: moves at or above the validation P99 score get
+/// This is the raw full logistic model trained from the 200-game post-integration
+/// shadow-probe dataset at analysis/criticality/2026-06-21_093900804.
+/// We use it only as a ranker: moves at or above the validation P97 score get
 /// one ply of reduction protection.  Do not use the calibrated probability for
 /// continuous scaling unless calibration improves materially.
-const CRITICALITY_P99_LOGIT: f64 = -3.019_132_799_964_344;
-const CRITICALITY_INTERCEPT: f64 = -4.044_814_327_570_648_5;
+const CRITICALITY_P99_LOGIT: f64 = -2.996_526_340_703_860_5;
+const CRITICALITY_INTERCEPT: f64 = -3.815_606_153_861_211_6;
 
 /// Quiescence delta pruning margin (centipawns).
 /// If stand_pat + capture_value + margin < alpha, skip. ~200 is standard (SF, CPW).
@@ -1837,31 +1837,31 @@ fn criticality_score(input: LmrInput, base_reduction: i32, final_reduction: i32)
     };
 
     CRITICALITY_INTERCEPT
-        + 0.349_756_222_304_538_9 * (input.root_depth as f64 / 16.0)
-        + 1.223_292_863_816_158_6 * (input.ply as f64 / 32.0)
-        - 1.201_031_168_132_286_7 * (input.depth as f64 / 16.0)
-        - 0.594_661_753_095_014_7 * (input.move_index as f64 / 32.0)
-        + 0.609_953_575_560_068 * (base_reduction as f64 / 4.0)
-        - 0.342_892_384_756_693_5 * (final_reduction as f64 / 4.0)
-        - 1.305_839_904_608_567_8 * (new_depth as f64 / 16.0)
-        + 1.115_082_337_109_035_3 * normalized_history(input.history_score)
-        + 6.406_591_351_129_237 * normalized_score(input.static_eval)
-        - 0.258_755_620_660_264_6 * bool_feature(input.prev_static_eval.is_some())
-        + 1.827_496_427_455_566_7 * normalized_score(prev_static_eval)
-        + 1.890_272_758_156_488_4 * normalized_score(static_eval_delta)
-        - 6.777_513_630_884_668 * normalized_score(input.alpha)
-        - 0.416_727_634_367_547_73 * normalized_score(input.beta)
-        + 0.433_588_804_970_126_64 * bool_feature(input.is_pv)
-        - 0.433_588_804_970_126_64 * bool_feature(input.is_cut_node)
-        + 0.243_959_691_788_909_06 * bool_feature(input.improving)
-        + 2.597_772_761_945_919_7 * bool_feature(input.is_counter)
-        + 0.014_337_933_951_019_434 * bool_feature(input.side_to_move == Color::Black)
-        + 0.274_829_658_106_613_86 * bool_feature(piece == PieceType::Pawn)
-        - 0.397_538_295_037_103_9 * bool_feature(piece == PieceType::Knight)
-        - 0.068_090_285_752_410_79 * bool_feature(piece == PieceType::Bishop)
-        + 0.007_469_540_712_140_156 * bool_feature(piece == PieceType::Rook)
-        - 0.353_111_579_058_645_93 * bool_feature(piece == PieceType::Queen)
-        + 0.108_614_123_460_093_65 * bool_feature(piece == PieceType::King)
+        + 0.622_035_682_254_059_8 * (input.root_depth as f64 / 16.0)
+        + 1.469_181_333_356_005_5 * (input.ply as f64 / 32.0)
+        - 0.965_000_546_499_052_1 * (input.depth as f64 / 16.0)
+        - 1.083_317_076_398_084_6 * (input.move_index as f64 / 32.0)
+        - 1.620_795_533_159_597 * (base_reduction as f64 / 4.0)
+        + 2.112_306_951_495_513_3 * (final_reduction as f64 / 4.0)
+        - 2.773_046_292_446_39 * (new_depth as f64 / 16.0)
+        + 0.314_789_997_221_647_8 * normalized_history(input.history_score)
+        + 7.845_683_391_975_632 * normalized_score(input.static_eval)
+        - 0.246_839_894_777_142_55 * bool_feature(input.prev_static_eval.is_some())
+        + 1.894_434_140_212_677 * normalized_score(prev_static_eval)
+        + 4.112_301_192_541_191 * normalized_score(static_eval_delta)
+        - 7.828_034_647_662_448 * normalized_score(input.alpha)
+        - 0.551_107_766_850_325_7 * normalized_score(input.beta)
+        + 0.689_816_954_641_299_9 * bool_feature(input.is_pv)
+        - 0.689_816_954_641_299_9 * bool_feature(input.is_cut_node)
+        + 0.246_564_314_784_833_87 * bool_feature(input.improving)
+        + 2.496_561_329_270_951_6 * bool_feature(input.is_counter)
+        + 0.000_064_818_428_349_186_92 * bool_feature(input.side_to_move == Color::Black)
+        + 0.318_342_357_499_804_05 * bool_feature(piece == PieceType::Pawn)
+        - 0.674_590_255_178_052_2 * bool_feature(piece == PieceType::Knight)
+        + 0.053_494_108_574_306_07 * bool_feature(piece == PieceType::Bishop)
+        + 0.014_231_863_750_547_216 * bool_feature(piece == PieceType::Rook)
+        - 0.296_776_996_024_212_7 * bool_feature(piece == PieceType::Queen)
+        + 0.107_945_921_490_359_38 * bool_feature(piece == PieceType::King)
         // The trained weights for is_killer and tt_move_agreement are exactly zero.
         + 0.0 * bool_feature(input.is_killer)
         + 0.0 * bool_feature(input.tt_move_agreement)
