@@ -13,8 +13,8 @@
 use crate::board::{Board, Zobrist};
 use crate::config::EngineOptions;
 use crate::criticality::{
-    should_probe as should_probe_criticality, CriticalityLabelSource, CriticalityLogger,
-    CriticalityRecord,
+    should_probe as should_probe_criticality, CriticalityDecisionKind, CriticalityLabelSource,
+    CriticalityLogger, CriticalityRecord,
 };
 use crate::eval::{evaluate, EvalContext};
 use crate::movegen::{gen_captures, gen_moves, AttackTables, MoveList};
@@ -74,13 +74,14 @@ const LMR_NODE_TYPE_SCALING: bool = true;
 
 /// Conservative learned-criticality protection for LMR quiets.
 ///
-/// This is the raw full logistic model trained from the 200-game post-integration
-/// shadow-probe dataset at analysis/criticality/2026-06-21_093900804.
+/// This is the raw full logistic model trained only on shadow-only
+/// `counterfactual_probe` rows from the 200-game post-integration dataset at
+/// analysis/criticality/2026-06-22_023112418/model-shadow-only.json.
 /// We use it only as a ranker: moves at or above the validation P97 score get
 /// one ply of reduction protection.  Do not use the calibrated probability for
 /// continuous scaling unless calibration improves materially.
-const CRITICALITY_P99_LOGIT: f64 = -2.996_526_340_703_860_5;
-const CRITICALITY_INTERCEPT: f64 = -3.815_606_153_861_211_6;
+const CRITICALITY_P97_LOGIT: f64 = -4.549_676_788_644_19;
+const CRITICALITY_INTERCEPT: f64 = -4.531_881_428_371_637;
 
 /// Quiescence delta pruning margin (centipawns).
 /// If stand_pat + capture_value + margin < alpha, skip. ~200 is standard (SF, CPW).
@@ -947,9 +948,9 @@ fn try_null_move(
     if our_pieces == 0 {
         return None;
     }
-
     ctx.stats.null_move_tries += 1;
     let r = NULL_MOVE_BASE_R + depth / NULL_MOVE_DEPTH_DIVISOR;
+    let null_depth = depth - r;
     let undo = board.make_null_move(ctx.z);
     let mut null_pv = Vec::new();
     let null_score = -alpha_beta(
@@ -958,7 +959,7 @@ fn try_null_move(
         SearchNode {
             alpha: -beta,
             beta: -beta + 1,
-            depth: depth - r,
+            depth: null_depth,
             ply: ply + 1,
             is_pv: false,
         },
@@ -1809,7 +1810,7 @@ fn compute_lmr_reduction_details(input: LmrInput, ctx: &mut SearchContext) -> Lm
     let pre_protection_reduction = reduction.clamp(0, input.depth - 2);
     if pre_protection_reduction > 0
         && criticality_score(input, base_reduction, pre_protection_reduction)
-            >= CRITICALITY_P99_LOGIT
+            >= CRITICALITY_P97_LOGIT
     {
         reduction -= 1;
     }
@@ -1837,31 +1838,31 @@ fn criticality_score(input: LmrInput, base_reduction: i32, final_reduction: i32)
     };
 
     CRITICALITY_INTERCEPT
-        + 0.622_035_682_254_059_8 * (input.root_depth as f64 / 16.0)
-        + 1.469_181_333_356_005_5 * (input.ply as f64 / 32.0)
-        - 0.965_000_546_499_052_1 * (input.depth as f64 / 16.0)
-        - 1.083_317_076_398_084_6 * (input.move_index as f64 / 32.0)
-        - 1.620_795_533_159_597 * (base_reduction as f64 / 4.0)
-        + 2.112_306_951_495_513_3 * (final_reduction as f64 / 4.0)
-        - 2.773_046_292_446_39 * (new_depth as f64 / 16.0)
-        + 0.314_789_997_221_647_8 * normalized_history(input.history_score)
-        + 7.845_683_391_975_632 * normalized_score(input.static_eval)
-        - 0.246_839_894_777_142_55 * bool_feature(input.prev_static_eval.is_some())
-        + 1.894_434_140_212_677 * normalized_score(prev_static_eval)
-        + 4.112_301_192_541_191 * normalized_score(static_eval_delta)
-        - 7.828_034_647_662_448 * normalized_score(input.alpha)
-        - 0.551_107_766_850_325_7 * normalized_score(input.beta)
-        + 0.689_816_954_641_299_9 * bool_feature(input.is_pv)
-        - 0.689_816_954_641_299_9 * bool_feature(input.is_cut_node)
-        + 0.246_564_314_784_833_87 * bool_feature(input.improving)
-        + 2.496_561_329_270_951_6 * bool_feature(input.is_counter)
-        + 0.000_064_818_428_349_186_92 * bool_feature(input.side_to_move == Color::Black)
-        + 0.318_342_357_499_804_05 * bool_feature(piece == PieceType::Pawn)
-        - 0.674_590_255_178_052_2 * bool_feature(piece == PieceType::Knight)
-        + 0.053_494_108_574_306_07 * bool_feature(piece == PieceType::Bishop)
-        + 0.014_231_863_750_547_216 * bool_feature(piece == PieceType::Rook)
-        - 0.296_776_996_024_212_7 * bool_feature(piece == PieceType::Queen)
-        + 0.107_945_921_490_359_38 * bool_feature(piece == PieceType::King)
+        - 0.152_875_012_601_427_25 * (input.root_depth as f64 / 16.0)
+        + 0.735_838_646_984_717_2 * (input.ply as f64 / 32.0)
+        - 0.873_714_182_579_038_2 * (input.depth as f64 / 16.0)
+        - 1.043_699_758_610_700_6 * (input.move_index as f64 / 32.0)
+        - 0.513_712_172_623_182_1 * (base_reduction as f64 / 4.0)
+        + 1.544_485_099_792_215 * (final_reduction as f64 / 4.0)
+        - 2.159_049_968_790_647_3 * (new_depth as f64 / 16.0)
+        + 1.556_016_650_597_994_2 * normalized_history(input.history_score)
+        + 5.739_198_384_264_096 * normalized_score(input.static_eval)
+        - 0.316_867_213_444_681_1 * bool_feature(input.prev_static_eval.is_some())
+        + 1.901_766_259_089_970_9 * normalized_score(prev_static_eval)
+        + 4.004_276_897_688_178 * normalized_score(static_eval_delta)
+        - 4.994_272_043_215_292 * normalized_score(input.alpha)
+        - 0.382_227_234_880_739_06 * normalized_score(input.beta)
+        + 0.584_084_076_062_692_6 * bool_feature(input.is_pv)
+        - 0.584_084_076_062_692_7 * bool_feature(input.is_cut_node)
+        + 0.447_596_124_223_620_94 * bool_feature(input.improving)
+        - 1.947_485_685_342_310_6 * bool_feature(input.is_counter)
+        - 0.011_544_318_219_468_804 * bool_feature(input.side_to_move == Color::Black)
+        + 0.295_647_661_544_235_83 * bool_feature(piece == PieceType::Pawn)
+        - 0.108_058_810_201_738_88 * bool_feature(piece == PieceType::Knight)
+        - 0.059_180_402_269_422_84 * bool_feature(piece == PieceType::Bishop)
+        - 0.123_707_657_637_899_55 * bool_feature(piece == PieceType::Rook)
+        - 0.295_075_323_807_634_35 * bool_feature(piece == PieceType::Queen)
+        + 0.130_156_508_673_690_16 * bool_feature(piece == PieceType::King)
         // The trained weights for is_killer and tt_move_agreement are exactly zero.
         + 0.0 * bool_feature(input.is_killer)
         + 0.0 * bool_feature(input.tt_move_agreement)
@@ -1900,6 +1901,7 @@ fn build_criticality_record(
         return None;
     }
     Some(CriticalityRecord {
+        decision_kind: CriticalityDecisionKind::Lmr,
         pid: std::process::id(),
         game_id: ctx.game_id,
         search_id: ctx.search_id,
@@ -2204,13 +2206,17 @@ mod tests {
         static_exchange_eval(&board, &atk, m)
     }
 
-    fn lmr_reduction_for(input: LmrInput) -> i32 {
+    fn lmr_reduction_details_for(input: LmrInput) -> LmrReduction {
         let atk = AttackTables::init();
         let z = Zobrist::new();
         let mut tt = TranspositionTable::new(1);
         let stop = AtomicBool::new(false);
         let mut ctx = test_context(&atk, &z, &mut tt, Limits::default(), &stop);
-        compute_lmr_reduction_details(input, &mut ctx).final_reduction
+        compute_lmr_reduction_details(input, &mut ctx)
+    }
+
+    fn lmr_reduction_for(input: LmrInput) -> i32 {
+        lmr_reduction_details_for(input).final_reduction
     }
 
     fn reducible_lmr_input(depth: i32, moves_searched: usize) -> LmrInput {
@@ -2261,7 +2267,8 @@ mod tests {
     #[test]
     fn lmr_base_formula_rounds_to_nearest() {
         assert_eq!(
-            lmr_reduction_for(reducible_lmr_input(3, LMR_FULL_DEPTH_MOVES + 3)),
+            lmr_reduction_details_for(reducible_lmr_input(3, LMR_FULL_DEPTH_MOVES + 3))
+                .base_reduction,
             1
         );
     }
@@ -2287,7 +2294,7 @@ mod tests {
     }
 
     #[test]
-    fn lmr_applies_learned_criticality_p99_protection() {
+    fn lmr_applies_learned_criticality_p97_protection() {
         let baseline = reducible_lmr_input(12, LMR_FULL_DEPTH_MOVES + 16);
         let baseline_reduction = lmr_reduction_for(baseline);
         assert!(baseline_reduction > 0);
@@ -2302,7 +2309,7 @@ mod tests {
 
         assert!(
             criticality_score(critical, baseline_reduction, baseline_reduction)
-                >= CRITICALITY_P99_LOGIT
+                >= CRITICALITY_P97_LOGIT
         );
         assert_eq!(lmr_reduction_for(critical), baseline_reduction - 1);
     }

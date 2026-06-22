@@ -50,14 +50,72 @@ FEATURES_FULL = [
 
 FEATURES_HISTORY_ONLY = ["history_score"]
 
+FEATURES_NULL_MOVE_FULL = [
+    "root_depth",
+    "ply",
+    "depth",
+    "null_reduction",
+    "null_depth",
+    "static_eval",
+    "has_prev_static_eval",
+    "prev_static_eval",
+    "static_eval_delta",
+    "alpha",
+    "beta",
+    "static_beta_margin",
+    "is_cut_node",
+    "improving",
+    "side_to_move_black",
+]
+
+FEATURES_NULL_MOVE_MARGIN_ONLY = ["static_beta_margin"]
+
+FEATURES_FUTILITY_FULL = [
+    "root_depth",
+    "ply",
+    "depth",
+    "move_index",
+    "new_depth",
+    "history_score",
+    "static_eval",
+    "has_prev_static_eval",
+    "prev_static_eval",
+    "static_eval_delta",
+    "alpha",
+    "beta",
+    "futility_margin",
+    "static_alpha_margin",
+    "is_pv",
+    "is_cut_node",
+    "improving",
+    "is_killer",
+    "is_counter",
+    "tt_move_agreement",
+    "side_to_move_black",
+    "piece_p",
+    "piece_n",
+    "piece_b",
+    "piece_r",
+    "piece_q",
+    "piece_k",
+]
+
+FEATURES_FUTILITY_MARGIN_ONLY = ["static_alpha_margin"]
+
 SCORE_CLIP = 2000.0
 HISTORY_CLIP = 16384.0
-SCORE_PERCENTILES = [50.0, 75.0, 90.0, 95.0, 97.0, 99.0, 99.5]
+SCORE_PERCENTILES = [50.0, 75.0, 90.0, 95.0, 97.0, 98.0, 99.0, 99.5]
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("data", help="Labeled CSV file or raw directory of criticality-*.csv shards")
+    parser.add_argument(
+        "--decision",
+        choices=["lmr", "null_move", "futility"],
+        default="lmr",
+        help="Decision rows to train/evaluate. Missing decision_kind is treated as lmr.",
+    )
     parser.add_argument("--epochs", type=int, default=250)
     parser.add_argument("--lr", type=float, default=0.03)
     parser.add_argument("--l2", type=float, default=1e-4)
@@ -68,21 +126,39 @@ def main() -> None:
         help="Counterfactual probe rate used during collection; used for inverse-probability weights",
     )
     parser.add_argument("--max-rows", type=int, default=0, help="Optional deterministic cap on labeled rows")
+    parser.add_argument(
+        "--label-source",
+        action="append",
+        choices=["observed_research", "counterfactual_probe"],
+        help=(
+            "Restrict training/evaluation to one label source. Repeat to allow multiple sources. "
+            "Use --label-source counterfactual_probe for shadow-only counterfactual data."
+        ),
+    )
     parser.add_argument("--out", help="Optional JSON output for model weights/metrics")
     args = parser.parse_args()
 
-    rows = load_rows(Path(args.data), args.max_rows)
+    model_specs = model_specs_for_decision(args.decision)
+    rows = load_rows(Path(args.data), args.max_rows, set(args.label_source or []), args.decision)
     if not rows:
-        raise SystemExit("no labeled rows found")
+        raise SystemExit(f"no labeled {args.decision} rows found")
+    validate_required_columns(rows, model_specs, args.decision)
 
     print(f"loaded_labeled_rows {len(rows)}")
+    print_counts("decision_kind", rows)
     print_counts("split", rows)
     print_counts("label_source", rows)
     print_counts("bound_changed", rows)
 
     y = np.array([int(row["bound_changed"]) for row in rows], dtype=np.float64)
+    class_count = len(set(y.tolist()))
+    if class_count < 2:
+        raise SystemExit(
+            "need both bound_changed classes to train/evaluate; "
+            f"found only bound_changed={int(y[0])} in {len(rows)} rows"
+        )
     weights = inclusion_weights(rows, args.probe_permille)
-    splits = np.array([row.get("split") or split_for(row.get("pid", ""), row.get("game_id", "")) for row in rows])
+    splits = np.array([row.get("split") or split_for_row(row) for row in rows])
     sources = np.array([row.get("label_source", "") for row in rows])
 
     train_mask = splits == "train"
@@ -94,10 +170,7 @@ def main() -> None:
         )
 
     results = {}
-    for name, features in [
-        ("history_only", FEATURES_HISTORY_ONLY),
-        ("full", FEATURES_FULL),
-    ]:
+    for name, features in model_specs:
         X = build_matrix(rows, features)
         model = fit_logreg(
             X[train_mask],
@@ -150,13 +223,15 @@ def main() -> None:
         print_model_summary(name, metrics)
         print_model_summary(f"{name}_platt", metrics["calibrated"])
 
-    delta_auc = results["full"]["test"]["auc"] - results["history_only"]["test"]["auc"]
-    delta_auc_platt = (
-        results["full"]["calibrated"]["test"]["auc"]
-        - results["history_only"]["calibrated"]["test"]["auc"]
-    )
-    print(f"test_auc_delta_full_minus_history {delta_auc:.6f}")
-    print(f"test_auc_delta_full_platt_minus_history_platt {delta_auc_platt:.6f}")
+    baseline_name = model_specs[0][0]
+    if baseline_name != "full" and "full" in results:
+        delta_auc = results["full"]["test"]["auc"] - results[baseline_name]["test"]["auc"]
+        delta_auc_platt = (
+            results["full"]["calibrated"]["test"]["auc"]
+            - results[baseline_name]["calibrated"]["test"]["auc"]
+        )
+        print(f"test_auc_delta_full_minus_{baseline_name} {delta_auc:.6f}")
+        print(f"test_auc_delta_full_platt_minus_{baseline_name}_platt {delta_auc_platt:.6f}")
 
     if args.out:
         out_path = Path(args.out)
@@ -212,7 +287,29 @@ def build_result_metrics(
     return metrics
 
 
-def load_rows(path: Path, max_rows: int) -> list[dict[str, str]]:
+def model_specs_for_decision(decision: str) -> list[tuple[str, list[str]]]:
+    if decision == "null_move":
+        return [
+            ("static_margin_only", FEATURES_NULL_MOVE_MARGIN_ONLY),
+            ("full", FEATURES_NULL_MOVE_FULL),
+        ]
+    if decision == "futility":
+        return [
+            ("static_margin_only", FEATURES_FUTILITY_MARGIN_ONLY),
+            ("full", FEATURES_FUTILITY_FULL),
+        ]
+    return [
+        ("history_only", FEATURES_HISTORY_ONLY),
+        ("full", FEATURES_FULL),
+    ]
+
+
+def load_rows(
+    path: Path,
+    max_rows: int,
+    label_sources: set[str],
+    decision: str,
+) -> list[dict[str, str]]:
     shards = [path] if path.is_file() else sorted(path.glob("criticality-*.csv"))
     if not shards:
         raise SystemExit(f"no CSV input found at {path}")
@@ -222,16 +319,47 @@ def load_rows(path: Path, max_rows: int) -> list[dict[str, str]]:
         with shard.open(newline="", encoding="utf8", errors="replace") as handle:
             reader = csv.DictReader(handle)
             for row in reader:
+                row_decision = row.get("decision_kind") or "lmr"
+                if row_decision != decision:
+                    continue
+                row["decision_kind"] = row_decision
                 if row.get("label_source") in ("", "none", None):
+                    continue
+                if label_sources and row.get("label_source") not in label_sources:
                     continue
                 if row.get("bound_changed") not in ("0", "1"):
                     continue
                 if "split" not in row or row.get("split") == "":
-                    row["split"] = split_for(row.get("pid", ""), row.get("game_id", ""))
+                    row["split"] = split_for_row(row)
                 rows.append(row)
                 if max_rows and len(rows) >= max_rows:
                     return rows
     return rows
+
+
+def validate_required_columns(
+    rows: list[dict[str, str]],
+    model_specs: list[tuple[str, list[str]]],
+    decision: str,
+) -> None:
+    required = set[str]()
+    for _, features in model_specs:
+        for feature in features:
+            required.update(raw_columns_for_feature(feature))
+
+    missing = sorted(column for column in required if any(column not in row for row in rows))
+    if missing:
+        raise SystemExit(
+            f"missing required columns for {decision}: {', '.join(missing)}"
+        )
+
+
+def raw_columns_for_feature(feature: str) -> set[str]:
+    if feature == "side_to_move_black":
+        return {"side_to_move"}
+    if feature.startswith("piece_"):
+        return {"piece_type"}
+    return {feature}
 
 
 def build_matrix(rows: list[dict[str, str]], features: list[str]) -> np.ndarray:
@@ -247,15 +375,24 @@ def feature_value(row: dict[str, str], feature: str) -> float:
     value = parse_float(row.get(feature, ""))
     if feature == "history_score":
         return float(np.clip(value, -HISTORY_CLIP, HISTORY_CLIP) / HISTORY_CLIP)
-    if feature in {"static_eval", "prev_static_eval", "static_eval_delta", "alpha", "beta"}:
+    if feature in {
+        "static_eval",
+        "prev_static_eval",
+        "static_eval_delta",
+        "alpha",
+        "beta",
+        "static_beta_margin",
+        "futility_margin",
+        "static_alpha_margin",
+    }:
         return float(np.clip(value, -SCORE_CLIP, SCORE_CLIP) / SCORE_CLIP)
-    if feature in {"root_depth", "depth", "new_depth"}:
+    if feature in {"root_depth", "depth", "new_depth", "null_depth"}:
         return value / 16.0
     if feature == "ply":
         return value / 32.0
     if feature == "move_index":
         return value / 32.0
-    if feature in {"base_reduction", "final_reduction"}:
+    if feature in {"base_reduction", "final_reduction", "null_reduction"}:
         return value / 4.0
     return value
 
@@ -363,6 +500,7 @@ def sigmoid(z: np.ndarray) -> np.ndarray:
 def metrics_for(y: np.ndarray, pred: np.ndarray, weights: np.ndarray) -> dict[str, float]:
     pred = np.clip(pred, 1e-12, 1 - 1e-12)
     weights = weights / weights.mean()
+    bins = calibration_bins(y, pred, weights)
     return {
         "n": int(len(y)),
         "effective_n": float(weights.sum()),
@@ -370,8 +508,16 @@ def metrics_for(y: np.ndarray, pred: np.ndarray, weights: np.ndarray) -> dict[st
         "auc": auc(y, pred, weights),
         "log_loss": float(np.average(-(y * np.log(pred) + (1 - y) * np.log(1 - pred)), weights=weights)),
         "brier": float(np.average((pred - y) ** 2, weights=weights)),
-        "calibration_bins": calibration_bins(y, pred, weights),
+        "ece_10": calibration_error(bins),
+        "calibration_bins": bins,
     }
+
+
+def calibration_error(bins: list[dict[str, float]]) -> float:
+    total = sum(bin["weight"] for bin in bins)
+    if total <= 0.0:
+        return float("nan")
+    return float(sum(bin["weight"] * abs(bin["avg_pred"] - bin["empirical"]) for bin in bins) / total)
 
 
 def calibration_bins(y: np.ndarray, pred: np.ndarray, weights: np.ndarray, bins: int = 10) -> list[dict[str, float]]:
@@ -556,17 +702,27 @@ def print_model_summary(name: str, metrics: dict[str, object]) -> None:
         m = metrics[split]
         print(
             f"  {split} n={m['n']} pos={m['positive_rate']:.4f} "
-            f"auc={m['auc']:.6f} logloss={m['log_loss']:.6f} brier={m['brier']:.6f}"
+            f"auc={m['auc']:.6f} logloss={m['log_loss']:.6f} "
+            f"brier={m['brier']:.6f} ece10={m['ece_10']:.6f}"
         )
     for source, m in metrics["by_source_test"].items():
         print(
             f"  test/{source} n={m['n']} pos={m['positive_rate']:.4f} "
-            f"auc={m['auc']:.6f} logloss={m['log_loss']:.6f} brier={m['brier']:.6f}"
+            f"auc={m['auc']:.6f} logloss={m['log_loss']:.6f} "
+            f"brier={m['brier']:.6f} ece10={m['ece_10']:.6f}"
         )
 
 
-def split_for(pid: object, game_id: object) -> str:
-    digest = hashlib.blake2b(f"{pid}:{game_id}".encode("ascii"), digest_size=4).digest()
+def split_for_row(row: dict[str, str]) -> str:
+    return split_for(
+        row.get("pid", ""),
+        row.get("game_id", ""),
+        row.get("search_id", ""),
+    )
+
+
+def split_for(*parts: object) -> str:
+    digest = hashlib.blake2b(":".join(str(part) for part in parts).encode("ascii"), digest_size=4).digest()
     bucket = int.from_bytes(digest, "little") % 10
     if bucket == 0:
         return "test"
