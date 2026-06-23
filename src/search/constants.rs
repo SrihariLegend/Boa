@@ -17,29 +17,31 @@ pub(in crate::search) const RFP_MARGIN_PER_DEPTH: i32 = 100;
 /// SF applies up to depth ~7-8. 6 is conservative.
 pub(in crate::search) const RFP_MAX_DEPTH: i32 = 5;
 
-/// Forward futility pruning: maximum remaining depth.
+/// Criticality-guided forward futility pruning: maximum remaining depth.
 /// Applied only to quiet, non-checking, non-tactical non-PV moves after legal move filtering.
-pub(in crate::search) const FFP_MAX_DEPTH: i32 = 3;
+pub(in crate::search) const FFP_MAX_DEPTH: i32 = 4;
 
-/// Forward futility pruning: base margin multiplied by remaining depth.
-/// Probe/tune target. Starts conservative enough to be safe before local sweeps.
-pub(in crate::search) const FFP_BASE_MARGIN: i32 = 250;
+/// CG-FFP base margin per depth unit (centipawns).
+pub(in crate::search) const FFP_M0: i32 = 70;
 
-/// FFP: require quiet move SEE to be non-positive.
-pub(in crate::search) const FFP_SEE_GUARD: bool = true;
+/// CG-FFP move-index uncertainty weight (centipawns).
+pub(in crate::search) const FFP_W_IDX: f64 = 40.0;
 
-/// FFP: improving nodes get a larger margin, so pruning is less aggressive.
-pub(in crate::search) const FFP_IMPROVING_MULT: f64 = 1.2;
+/// CG-FFP node-type uncertainty weight (centipawns).
+pub(in crate::search) const FFP_W_NODE: f64 = 50.0;
 
-/// FFP: cut nodes may use a smaller margin after counterfactual validation.
-pub(in crate::search) const FFP_CUT_MULT: f64 = 1.0;
+/// CG-FFP safety buffer added to the estimated gain.
+pub(in crate::search) const FFP_BUFFER: i32 = 0;
 
-/// FFP: optional late-move adjustment based on ordered quiet-move index.
-pub(in crate::search) const FFP_MOVE_COUNT_THRESHOLD: usize = 10;
-pub(in crate::search) const FFP_LATE_MOVE_BONUS: i32 = 0;
+/// CG-FFP maximum move rank used for log-scaled uncertainty.
+pub(in crate::search) const FFP_MAX_RANK: usize = 60;
 
-/// FFP: quiets with strong positive history are protected.
-pub(in crate::search) const FFP_HISTORY_PROTECTION: i32 = 2_048;
+/// CG-FFP logarithmic move-index scaling constant.
+pub(in crate::search) const FFP_IDX_LOG_K: f64 = 30.0;
+
+/// Reserved toggles for later CG-FFP extensions. Experiment A keeps both off.
+pub(in crate::search) const FFP_USE_HISTORY_UNCERTAINTY: bool = false;
+pub(in crate::search) const FFP_USE_IMPROVING_UNCERTAINTY: bool = false;
 
 /// Null-move pruning: minimum depth to attempt.
 /// Standard: 3 (CPW, SF).

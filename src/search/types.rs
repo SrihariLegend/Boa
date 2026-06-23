@@ -84,10 +84,8 @@ pub(in crate::search) struct FfpInput {
     pub(in crate::search) depth: i32,
     pub(in crate::search) static_eval: Score,
     pub(in crate::search) alpha: Score,
-    pub(in crate::search) see: i32,
-    pub(in crate::search) improving: bool,
+    pub(in crate::search) move_index: usize,
     pub(in crate::search) is_cut_node: bool,
-    pub(in crate::search) move_count: usize,
 }
 
 pub(in crate::search) struct CriticalityRecordInput {
