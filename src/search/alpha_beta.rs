@@ -52,6 +52,7 @@ pub(in crate::search) fn alpha_beta(
     }
     let beta = beta_md;
     let is_cut_node = !is_pv && beta == alpha + 1;
+    let original_alpha = alpha;
 
     let in_check = board.is_in_check(board.side);
 
@@ -153,8 +154,8 @@ pub(in crate::search) fn alpha_beta(
     let mut bound = Bound::Upper;
     let mut moves_searched = 0;
     let mut quiet_moves_searched = 0;
-    let mut quiet_moves_seen = 0;
     let mut legal_moves = 0;
+    let mut ffp_pruned_any = false;
 
     for i in 0..list.count {
         list.pick_best(i);
@@ -191,14 +192,22 @@ pub(in crate::search) fn alpha_beta(
         let is_killer = ply < 128 && (m == ctx.killers[ply][0] || m == ctx.killers[ply][1]);
         let is_counter = m == counter_move;
         let ffp_see = if ctx.options.search.forward_futility_pruning
-            && ctx.options.search.see
-            && FFP_SEE_GUARD
+            && !ctx.in_criticality_probe
+            && !is_pv
+            && depth >= 1
+            && depth <= FFP_MAX_DEPTH
+            && !in_check
             && !is_capture
             && !is_promo
+            && !is_mate_score(alpha)
+            && !is_mate_score(static_eval)
+            && m != tt_move
+            && !is_killer
+            && !is_counter
         {
-            static_exchange_eval(board, ctx.atk, m)
+            Some(static_exchange_eval(board, ctx.atk, m))
         } else {
-            0
+            None
         };
 
         // Make move and verify legality
@@ -214,33 +223,18 @@ pub(in crate::search) fn alpha_beta(
         let is_lmr_quiet = is_quiet;
 
         // ---- Forward futility pruning (quiet move frontier) ----
-        if ctx.options.search.forward_futility_pruning
-            && !ctx.in_criticality_probe
-            && ply > 0
-            && !is_pv
-            && !in_check
-            && depth >= 1
-            && depth <= FFP_MAX_DEPTH
-            && is_quiet
-            && m != tt_move
-            && !is_killer
-            && !is_counter
-            && history_score < FFP_HISTORY_PROTECTION
-            && !is_mate_score(alpha)
-            && !is_mate_score(static_eval)
-        {
+        if is_quiet && ffp_see.is_some_and(|see| see <= 0) {
             ctx.stats.ffp_attempts += 1;
             let ffp_input = FfpInput {
                 depth,
                 static_eval,
                 alpha,
-                see: ffp_see,
-                improving,
                 is_cut_node,
-                move_count: quiet_moves_seen + 1,
+                move_index: (moves_searched + 1).min(FFP_MAX_RANK),
             };
             if should_ffp_prune(ffp_input) {
                 ctx.stats.ffp_prunes += 1;
+                ffp_pruned_any = true;
                 if should_run_futility_probe(ctx, node_hash, m, depth, ply) {
                     let mut full_pv = Vec::new();
                     let was_in_probe = ctx.in_criticality_probe;
@@ -301,7 +295,6 @@ pub(in crate::search) fn alpha_beta(
                     }
                 }
                 board.unmake_move(m, &undo, ctx.z);
-                quiet_moves_seen += 1;
                 continue;
             }
         }
@@ -478,7 +471,6 @@ pub(in crate::search) fn alpha_beta(
         moves_searched += 1;
         if is_lmr_quiet {
             quiet_moves_searched += 1;
-            quiet_moves_seen += 1;
         }
 
         if ctx.stopped {
@@ -533,6 +525,14 @@ pub(in crate::search) fn alpha_beta(
 
     // Pop our position hash from history
     ctx.history_hashes.pop();
+
+    // If some legal moves were pruned and none of the searched moves raised
+    // alpha, we only know the node failed low relative to the original window.
+    // Returning/storing a searched best_score below original_alpha would create
+    // an over-tight upper bound that ignores the unsearched pruned moves.
+    if ffp_pruned_any && bound == Bound::Upper {
+        best_score = best_score.max(original_alpha);
+    }
 
     // TT store (mate scores converted to node-relative distance). Do not let
     // shadow probes seed the TT for the real search after they return.

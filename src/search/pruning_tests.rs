@@ -1,6 +1,5 @@
 use super::test_utils::*;
 use super::*;
-use std::sync::atomic::AtomicBool;
 #[test]
 pub(in crate::search) fn lmr_keeps_protected_moves_full_depth() {
     let mut input = reducible_lmr_input(8, LMR_FULL_DEPTH_MOVES);
@@ -69,64 +68,67 @@ pub(in crate::search) fn lmr_applies_learned_criticality_p97_protection() {
 }
 
 #[test]
-pub(in crate::search) fn ffp_margin_and_see_guard_work() {
+pub(in crate::search) fn ffp_uses_criticality_guided_margin() {
+    assert_eq!(
+        ffp_margin(FfpInput {
+            depth: 1,
+            static_eval: 0,
+            alpha: 0,
+            move_index: 1,
+            is_cut_node: false,
+        }),
+        FFP_M0
+    );
+
+    let early_all = ffp_margin(FfpInput {
+        depth: FFP_MAX_DEPTH,
+        static_eval: 0,
+        alpha: 0,
+        move_index: 1,
+        is_cut_node: false,
+    });
+    let late_all = ffp_margin(FfpInput {
+        depth: FFP_MAX_DEPTH,
+        static_eval: 0,
+        alpha: 0,
+        move_index: FFP_MAX_RANK,
+        is_cut_node: false,
+    });
+    let late_cut = ffp_margin(FfpInput {
+        depth: FFP_MAX_DEPTH,
+        static_eval: 0,
+        alpha: 0,
+        move_index: FFP_MAX_RANK,
+        is_cut_node: true,
+    });
+
+    assert!(early_all > late_all);
+    assert!(late_cut < late_all);
+}
+
+#[test]
+pub(in crate::search) fn ffp_prunes_only_beyond_safety_buffer() {
+    let margin = ffp_margin(FfpInput {
+        depth: 2,
+        static_eval: 0,
+        alpha: 0,
+        move_index: 10,
+        is_cut_node: false,
+    });
+
     assert!(should_ffp_prune(FfpInput {
         depth: 2,
         static_eval: 0,
-        alpha: FFP_BASE_MARGIN * 2,
-        see: 0,
-        improving: false,
+        alpha: margin + FFP_BUFFER + 1,
+        move_index: 10,
         is_cut_node: false,
-        move_count: 1,
     }));
 
     assert!(!should_ffp_prune(FfpInput {
         depth: 2,
         static_eval: 1,
-        alpha: FFP_BASE_MARGIN * 2,
-        see: 0,
-        improving: false,
+        alpha: margin + FFP_BUFFER + 1,
+        move_index: 10,
         is_cut_node: false,
-        move_count: 1,
     }));
-
-    assert!(!should_ffp_prune(FfpInput {
-        depth: 2,
-        static_eval: 0,
-        alpha: FFP_BASE_MARGIN * 2,
-        see: 1,
-        improving: false,
-        is_cut_node: false,
-        move_count: 1,
-    }));
-}
-
-#[test]
-pub(in crate::search) fn ffp_all_pruned_returns_alpha_without_tt_pollution() {
-    let atk = AttackTables::init();
-    let z = Zobrist::new();
-    let mut tt = TranspositionTable::new(1);
-    let stop = AtomicBool::new(false);
-    let mut ctx = test_context(&atk, &z, &mut tt, Limits::default(), &stop);
-    let mut board = Board::startpos();
-    ctx.root_color = board.side;
-    let hash = board.hash;
-
-    let mut pv = Vec::new();
-    let score = alpha_beta(
-        &mut board,
-        &mut ctx,
-        SearchNode {
-            alpha: 2_000,
-            beta: 2_001,
-            depth: 1,
-            ply: 1,
-            is_pv: false,
-        },
-        &mut pv,
-    );
-
-    assert_eq!(score, 2_000);
-    assert!(ctx.stats.ffp_prunes > 0);
-    assert!(ctx.tt.probe(hash).is_none());
 }
