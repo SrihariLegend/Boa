@@ -225,12 +225,13 @@ pub(in crate::search) fn alpha_beta(
         // ---- Forward futility pruning (quiet move frontier) ----
         if is_quiet && ffp_see.is_some_and(|see| see <= 0) {
             ctx.stats.ffp_attempts += 1;
+            let quiet_move_index = (quiet_moves_searched + 1).min(FFP_MAX_RANK);
             let ffp_input = FfpInput {
                 depth,
                 static_eval,
                 alpha,
                 is_cut_node,
-                move_index: (moves_searched + 1).min(FFP_MAX_RANK),
+                move_index: quiet_move_index,
             };
             if should_ffp_prune(ffp_input) {
                 ctx.stats.ffp_prunes += 1;
@@ -270,7 +271,7 @@ pub(in crate::search) fn alpha_beta(
                                 to,
                                 piece: moving_piece,
                                 depth,
-                                move_index: moves_searched + 1,
+                                move_index: quiet_move_index,
                                 base_reduction: 0,
                                 final_reduction: 0,
                                 new_depth: depth - 1,
