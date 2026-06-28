@@ -43,6 +43,7 @@ pub(in crate::search) fn build_criticality_record(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(in crate::search) fn should_run_criticality_probe(
     ctx: &SearchContext,
     node_hash: u64,

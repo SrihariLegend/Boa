@@ -10,7 +10,7 @@ pub(in crate::search) fn quiescence_reports_checkmate_instead_of_standing_pat() 
     let mut ctx = test_context(&atk, &z, &mut tt, Limits::default(), &stop);
     let mut board = Board::from_fen("7k/6Q1/6K1/8/8/8/8/8 b - - 0 1").unwrap();
 
-    let score = quiescence(&mut board, &mut ctx, -SCORE_INF, SCORE_INF, 0, 0);
+    let score = quiescence(&mut board, &mut ctx, -SCORE_INF, SCORE_INF, 0);
     assert_eq!(score, -SCORE_MATE);
 }
 

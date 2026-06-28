@@ -9,9 +9,13 @@ pub(in crate::search) const ASPIRATION_DELTA: i32 = 25;
 /// Standard practice: SF uses 4-5.
 pub(in crate::search) const ASPIRATION_MIN_DEPTH: u32 = 4;
 
+/// Aspiration: maximum window expansions before falling through to a full
+/// -INF/+INF re-search. Prevents pathological re-search loops (SF caps at ~4).
+pub(in crate::search) const ASPIRATION_MAX_EXPANSIONS: u32 = 4;
+
 /// Reverse futility pruning margin per depth unit (centipawns).
-/// SF uses ~67-73 (tuned via SPRT). 80 is slightly aggressive. [NEEDS TUNING]
-pub(in crate::search) const RFP_MARGIN_PER_DEPTH: i32 = 100;
+/// SF uses ~67-73 (tuned via SPRT). 70 is within their range. [NEEDS SPRT]
+pub(in crate::search) const RFP_MARGIN_PER_DEPTH: i32 = 70;
 
 /// RFP: maximum depth at which to apply.
 /// SF applies up to depth ~7-8. 6 is conservative.
@@ -39,9 +43,9 @@ pub(in crate::search) const FFP_MAX_RANK: usize = 60;
 /// CG-FFP logarithmic move-index scaling constant.
 pub(in crate::search) const FFP_IDX_LOG_K: f64 = 30.0;
 
-/// Reserved toggles for later CG-FFP extensions. Experiment A keeps both off.
-pub(in crate::search) const FFP_USE_HISTORY_UNCERTAINTY: bool = false;
-pub(in crate::search) const FFP_USE_IMPROVING_UNCERTAINTY: bool = false;
+// Future CG-FFP extension points: history score and improving-flag uncertainty
+// terms can be added here when trained. The ffp_margin function has hooks
+// where these terms would plug in.
 
 /// Null-move pruning: minimum depth to attempt.
 /// Standard: 3 (CPW, SF).
@@ -122,8 +126,8 @@ pub(in crate::search) const IID_REDUCTION: i32 = 2;
 /// Keeps learned capture ordering from overwhelming the static MVV-LVA signal.
 pub(in crate::search) const CAP_HISTORY_DIVISOR: i32 = 16;
 
-/// Quiescence check evasion cap. In-check stand-pat is illegal, but unlimited
-/// evasion recursion was too expensive; this keeps the tactical fix bounded.
-pub(in crate::search) const QS_CHECK_EVASION_MAX_PLY: usize = 2;
+// Quiescence check evasion: evasions are searched without a ply cap (relying
+// on MAX_PLY for termination). In-check stand-pat is illegal, and evasion
+// sequences are naturally bounded by the position resolving. [NEEDS SPRT]
 
 // ---- Search statistics (diagnostic) ----

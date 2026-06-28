@@ -64,7 +64,7 @@ pub(in crate::search) fn alpha_beta(
     // Drop into quiescence at depth 0 only for quiet-to-move positions.
     if depth <= 0 {
         ctx.history_hashes.pop();
-        return quiescence(board, ctx, alpha, beta, ply, 0);
+        return quiescence(board, ctx, alpha, beta, ply);
     }
 
     // Check extension: extend by 1 ply when in check.
@@ -85,9 +85,10 @@ pub(in crate::search) fn alpha_beta(
     }
 
     // ---- Internal Iterative Deepening (IID) ----
-    // When we have no TT move at a PV node (or high-depth non-PV), do a
-    // reduced-depth search to populate the TT with a candidate best move.
-    if tt_move == MOVE_NONE && depth >= IID_MIN_DEPTH && !in_check {
+    // When we have no TT move at a PV node, do a reduced-depth search to
+    // populate the TT with a candidate best move. Cut nodes usually get a
+    // hash hit from a sibling and are skipped. [NEEDS SPRT]
+    if tt_move == MOVE_NONE && depth >= IID_MIN_DEPTH && !in_check && !is_cut_node {
         ctx.stats.iid_triggers += 1;
         let iid_depth = depth - IID_REDUCTION;
         let mut iid_pv = Vec::new();
@@ -144,6 +145,10 @@ pub(in crate::search) fn alpha_beta(
     // Generate and order moves
     let mut list = gen_moves(board, ctx.atk);
     score_moves(board, ctx, &mut list, tt_move, ply);
+    // Lazy SMP: non-primary workers search different root moves first.
+    // 3M dominates HISTORY_OVERFLOW_THRESHOLD (500k) and any killer score
+    // so the per-worker root move sorts first. Move-ordering scores are
+    // unrelated to search bounds (SCORE_INF = 1_000_000), so 3M is safe here.
     if ply == 0 && ctx.smp_worker_id > 0 && list.count > 1 {
         let idx = ctx.smp_worker_id % list.count;
         list.scores[idx] += 3_000_000;
@@ -194,8 +199,7 @@ pub(in crate::search) fn alpha_beta(
         let ffp_see = if ctx.options.search.forward_futility_pruning
             && !ctx.in_criticality_probe
             && !is_pv
-            && depth >= 1
-            && depth <= FFP_MAX_DEPTH
+            && (1..=FFP_MAX_DEPTH).contains(&depth)
             && !in_check
             && !is_capture
             && !is_promo

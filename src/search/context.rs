@@ -54,6 +54,7 @@ pub struct PlyInfo {
 }
 
 impl<'a> SearchContext<'a> {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         atk: &'a AttackTables,
         z: &'a Zobrist,

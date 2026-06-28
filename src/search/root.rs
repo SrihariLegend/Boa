@@ -255,6 +255,9 @@ pub(in crate::search) fn aspiration_search(
         if alpha <= -SCORE_INF && beta >= SCORE_INF {
             break;
         }
+        if window_expand >= ASPIRATION_MAX_EXPANSIONS {
+            break;
+        }
     }
     alpha_beta(
         board,
