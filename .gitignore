@@ -6,12 +6,6 @@
 /tools/cutechess-1.4.0.tar.gz
 /tools/cutechess/
 /tools/cutechess-cli
-/tools/match_results/
-/tools/match_manager/node_modules/
-/tools/match_manager/dist/
-/tools/match_manager/engines/
-/tools/match_manager/matches/
-/tools/analysis_results/
 /analysis/
 
 # Python bytecode cache
@@ -23,3 +17,9 @@ __pycache__/
 
 # Windows download metadata
 *:Zone.Identifier
+
+# AI coding tool state (aider, etc.)
+.aider*
+.diracrules/
+.agents/
+STS/
