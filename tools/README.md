@@ -5,9 +5,6 @@ inspect restriction-style behavior, and manage release support files.
 
 ## Tool Map
 
-- `match_manager/`: terminal UI and scripted match workflow.
-- `match_manager/src/ablation.ts`: non-interactive ablation and scale runner.
-- `cutechess-cli`: local cutechess binary or wrapper used by Match Manager.
 - `openings.epd`: opening suite for fair engine comparisons.
 - `player_style_probe.mjs`: fixed-depth style diagnostic against reference PGNs.
 - `../games/*.zip`: zipped Karpov, Petrosian, and Keres PGN archives.
@@ -15,9 +12,7 @@ inspect restriction-style behavior, and manage release support files.
 
 Generated files that should stay local:
 
-Generated match state, analysis datasets, and build output should stay local. Do not commit
-`target/`, `tools/match_manager/dist/`, `tools/match_manager/engines/`, or
-`tools/match_manager/matches/`, or `analysis/`.
+Do not commit `target/` or `analysis/`.
 
 ## Requirements
 
@@ -27,68 +22,42 @@ Build the current engine before running tools that execute Boa:
 cargo build --release
 ```
 
-Install Match Manager dependencies once:
-
-```sh
-cd tools/match_manager
-npm install
-```
-
-Other local dependencies:
+Local dependencies:
 
 - `unzip`: required by PGN tools that read zipped archives.
-- `tools/cutechess-cli` or `cutechess-cli` on `PATH`: required for matches.
+- `fastchess` (bundled in [match-manager](https://github.com/user/match-manager)): required for matches.
 - `stockfish` on `PATH` or `/usr/games/stockfish`: optional Stockfish matches.
 
 ## Match Manager
 
-Path: `tools/match_manager/`
+Match Manager has been extracted to its own standalone repository:
 
-The Match Manager is the main human workflow for engine approval matches and
-PGN review. It can snapshot Boa binaries, import existing binaries, configure
-cutechess matches, monitor Elo/LOS/SPRT progress, stop or delete matches, and
-replay PGNs.
+**[match-manager](https://github.com/user/match-manager)** — terminal match
+manager for UCI chess engines.
 
-Build and run:
+It wraps `fastchess`, manages engine snapshots, runs approval matches and
+scripted ablations, and provides both an interactive terminal UI and a web UI.
 
-```sh
-cd tools/match_manager
-npm run build
-./match-manager
-```
+See the standalone repo for full documentation and setup instructions. The
+ablation definitions and snapshot workflow have moved there.
 
-Development mode:
+## Direct fastchess
 
-```sh
-cd tools/match_manager
-npm run check
-npm run dev
-```
-
-Full manual:
-
-```text
-tools/match_manager/README.md
-```
-
-## Direct cutechess-cli
-
-Path: `tools/cutechess-cli`
-
-Use direct cutechess for scripted non-regression checks when the Match Manager
-UI is not appropriate. Keep both engines on the same hash, openings, time
-control, adjudication, and concurrency.
+Use direct fastchess for scripted non-regression checks when the Match Manager
+UI is not appropriate. fastchess is bundled in the standalone
+[match-manager](https://github.com/user/match-manager) repo. Keep both engines
+on the same hash, openings, time control, adjudication, and concurrency.
 
 Example candidate vs saved baseline:
 
 ```sh
-tools/cutechess-cli \
+match-manager/fastchess -output cutechess \
   -engine cmd=target/release/boa proto=uci name=candidate option.Hash=64 \
-  -engine cmd=tools/match_manager/engines/main_baseline/boa proto=uci name=baseline option.Hash=64 \
+  -engine cmd=<snapshot_path>/boa proto=uci name=baseline option.Hash=64 \
   -each proto=uci tc=5+0.05 \
   -games 2 -rounds 200 -repeat \
   -concurrency 8 \
-  -openings file=tools/openings.epd format=epd order=random policy=round \
+  -openings file=tools/openings.epd format=epd order=random \
   -recover -maxmoves 200 \
   -draw movenumber=40 movecount=8 score=10 \
   -resign movecount=5 score=700 twosided=true
@@ -97,13 +66,13 @@ tools/cutechess-cli \
 Example SPRT shape:
 
 ```sh
-tools/cutechess-cli \
+match-manager/fastchess -output cutechess \
   -engine cmd=target/release/boa proto=uci name=candidate option.Hash=64 \
-  -engine cmd=tools/match_manager/engines/main_baseline/boa proto=uci name=baseline option.Hash=64 \
+  -engine cmd=<snapshot_path>/boa proto=uci name=baseline option.Hash=64 \
   -each proto=uci tc=1+0.01 \
   -games 2 -rounds 5000 -repeat \
   -concurrency 8 \
-  -openings file=tools/openings.epd format=epd order=random policy=round \
+  -openings file=tools/openings.epd format=epd order=random \
   -recover -maxmoves 200 \
   -draw movenumber=40 movecount=8 score=10 \
   -resign movecount=5 score=700 twosided=true \
@@ -115,51 +84,16 @@ Elo/error or SPRT result, and compared snapshots or commits.
 
 ## Ablation Runner
 
-Path: `tools/match_manager/src/ablation.ts`
+The ablation runner is part of the standalone [match-manager](https://github.com/user/match-manager) repo.
 
-The ablation runner tests individual UCI-controlled features using the same
-snapshot as both engines. The candidate side receives one option override.
+It tests individual UCI-controlled features using the same engine snapshot as
+both sides, with one side receiving an option override. The reported Elo is
+from the ablated candidate's perspective. If `no_eval_freedom` loses clearly,
+the freedom term is useful. If it wins clearly, the term is harmful or
+overweighted. If it is inside the error bar, the result is unclear.
 
-List available ablations:
-
-```sh
-cd tools/match_manager
-npm run ablate -- --list
-npm run ablate -- --suite scale --list
-```
-
-Run a focused ablation:
-
-```sh
-cd tools/match_manager
-npm run ablate -- --engine main_baseline --only no_eval_freedom --games 400 --tc 5+0.05
-```
-
-Run a scale suite:
-
-```sh
-cd tools/match_manager
-npm run ablate -- --engine main_baseline --suite scale --games 400 --tc 5+0.05
-```
-
-Run with SPRT:
-
-```sh
-cd tools/match_manager
-npm run ablate -- \
-  --engine main_baseline \
-  --only no_eval_freedom \
-  --games 10000 \
-  --tc 1+0.01 \
-  --sprt \
-  --sprt-elo0 0 \
-  --sprt-elo1 5
-```
-
-Interpretation: the reported Elo is from the ablated candidate's perspective.
-If `no_eval_freedom` loses clearly, the freedom term is useful. If it wins
-clearly, the term is harmful or overweighted. If it is inside the error bar,
-the result is unclear.
+See the match-manager README for full usage, including `--list`, `--suite scale`,
+`--sprt`, and interpretation details.
 
 ## Restriction Signal Dataset
 
@@ -491,9 +425,9 @@ The workflow runs on `windows-latest`, installs stable Rust, runs
 
 ## Choosing The Right Tool
 
-- Need a human approval run or PGN replay: use Match Manager.
-- Need a repeatable agent-run match: use direct `tools/cutechess-cli`.
-- Need to test whether an existing UCI feature matters: use `npm run ablate`.
+- Need a human approval run or PGN replay: use [match-manager](https://github.com/user/match-manager).
+- Need a repeatable agent-run match: use direct `fastchess` from match-manager.
+- Need to test whether an existing UCI feature matters: use the ablation runner in match-manager.
 - Need to inspect style, not strength: use `player_style_probe.mjs`.
-- Need to compare engine strength for a PR: use Match Manager snapshots plus
-  direct cutechess or Match Manager.
+- Need to compare engine strength for a PR: use match-manager snapshots plus
+  direct cutechess or match-manager.

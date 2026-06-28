@@ -26,7 +26,7 @@ This tool only patches/builds/copies binaries; it does not run cutechess.
 
 Options:
   --model FILE       Training JSON. Default: analysis/criticality/2026-06-22_023112418/model-shadow-only.json
-  --source FILE      Rust source to patch. Default: src/search.rs
+  --source FILE      Rust source to patch. Default: src/search/constants.rs
   --out-dir DIR      Output directory. Default: analysis/criticality_threshold_sweep/<timestamp>
   --percentiles CSV  Percentiles to build. Default: 90,95,97,98,99,99.5
   --dry-run          Print manifest without patching/building
@@ -38,7 +38,7 @@ Example:
 }
 
 const modelPath = path.resolve(args.get("model") ?? "analysis/criticality/2026-06-22_023112418/model-shadow-only.json");
-const sourcePath = path.resolve(args.get("source") ?? "src/search.rs");
+const sourcePath = path.resolve(args.get("source") ?? "src/search/constants.rs");
 const outDir = path.resolve(args.get("out-dir") ?? path.join("analysis", "criticality_threshold_sweep", timestamp()));
 const percentiles = (args.get("percentiles") ?? "90,95,97,98,99,99.5")
   .split(",")
