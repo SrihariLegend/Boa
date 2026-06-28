@@ -1,6 +1,9 @@
 # Boa
 
-Boa is a UCI chess engine written in Rust. It uses bitboard move generation, classical tapered evaluation, and alpha-beta search with standard pruning and move-ordering heuristics.
+Boa is a UCI chess engine written in Rust. It uses bitboard move generation,
+classical tapered evaluation, and alpha-beta search with standard pruning and
+move-ordering heuristics.  Late-move reductions are guarded by a learned
+logistic criticality model trained on shadow counterfactual probes.
 
 ## Build
 
@@ -8,11 +11,7 @@ Boa is a UCI chess engine written in Rust. It uses bitboard move generation, cla
 cargo build --release
 ```
 
-The engine binary is written to:
-
-```sh
-target/release/boa
-```
+The engine binary is written to `target/release/boa`.
 
 ## Run
 
@@ -22,7 +21,8 @@ Start the engine directly:
 ./target/release/boa
 ```
 
-It speaks UCI, so it can also be loaded by chess GUIs and match runners that support UCI engines.
+It speaks UCI, so it can also be loaded by chess GUIs and match runners that
+support UCI engines.
 
 Useful manual commands:
 
@@ -50,44 +50,50 @@ Supported UCI options:
 
 Run `uci` to print the authoritative option list for the current binary.
 
-## Match Manager
+## Learned LMR Criticality
 
-The main test workflow is the terminal Match Manager:
+Boa's late-move reductions use a learned logistic guard.  Before reducing a
+quiet move the engine computes a criticality score from 27 positional and
+search-state features.  Moves whose score exceeds the P97 threshold get one
+ply of reduction protection.
+
+The model is trained on **shadow counterfactual probes**: during self-play the
+engine occasionally searches a reduced move to full depth to see whether the
+reduction changed the score.  Those outcomes become training labels.
+
+### Runtime coefficients
+
+At startup the engine loads `criticality.coeffs` from the same directory as
+the executable.  If the file is missing or malformed it falls back to the
+hardcoded coefficients in `src/search/constants.rs`.
+
+The `.coeffs` format uses plain `key = value` lines.  Everything below the
+`---` separator is commented-out version history — the engine never parses it.
+
+### Training pipeline
+
+One script handles everything:
 
 ```sh
-cd tools/match_manager
-npm install
-npm run build
-./match-manager
+# Full pipeline: collect self-play games, train model, write .coeffs
+python3 tools/train.py all --games 200
+
+# Or step by step:
+python3 tools/train.py collect --games 200
+python3 tools/train.py train --data analysis/criticality/<run>/raw
+
+# Probe health check:
+python3 tools/train.py check --data analysis/criticality/<run>/raw
 ```
 
-Match Manager can snapshot engine builds, run approval matches through Cute Chess, configure openings and time controls, and browse saved games.
+Requirements: Python 3 with numpy and scikit-learn, Node.js, cutechess-cli.
 
-It depends on:
-
-- `tools/cutechess-cli`
-- `tools/openings.epd`
-- `target/release/boa`
-
-Full documentation:
-
-- Human Match Manager manual: `tools/match_manager/README.md`.
-- All tools overview: `tools/README.md`.
-- Coding-agent playbook: `tools/AGENT_GUIDE.md`.
+Full documentation: `tools/CRITICALITY_GUIDE.md`.
 
 ## Development
 
-Run the Rust checks:
-
 ```sh
 cargo test
-```
-
-Run Match Manager type checks:
-
-```sh
-cd tools/match_manager
-npm run check
 ```
 
 ## Releases
@@ -105,20 +111,14 @@ uploads a raw `boa-<tag>-windows-x86_64.exe`, a zip archive, and
 
 ## Repository Layout
 
-- `src/`: engine source.
-- `games/`: archived reference games.
-- `EXPERIMENTS.md`: scratchpad of tried engine ideas, results, and rejected code paths.
-- `tools/match_manager/`: terminal match workflow and saved match state.
-- `tools/openings.epd`: opening suite used by Match Manager.
-- `tools/player_style_probe.mjs`: reference-player style probe for game collections.
+- `src/` — engine source.
+- `games/` — archived reference games.
+- `tools/` — training pipeline, game runner, opening book, docs.
+- `criticality.coeffs` — current LMR criticality coefficients (loaded at runtime).
+- `EXPERIMENTS.md` — scratchpad of tried engine ideas, results, and rejected code paths.
 
-## Documentation For Tooling
+## Tooling Docs
 
-Use these docs before running engine experiments:
-
-- `tools/match_manager/README.md`: complete Match Manager usage for humans and
-  scripted ablation workflows.
-- `tools/README.md`: direct cutechess, ablations, openings, style probe, and
-  release-tool overview.
-- `tools/AGENT_GUIDE.md`: non-interactive workflows and reporting rules for
-  coding agents.
+- `tools/CRITICALITY_GUIDE.md` — how to use the training pipeline, add/remove features.
+- `tools/README.md` — match-running and tool overview.
+- `tools/AGENT_GUIDE.md` — non-interactive workflows and reporting rules for coding agents.
