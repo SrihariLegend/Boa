@@ -20,6 +20,13 @@ __pycache__/
 
 # AI coding tool state (aider, etc.)
 .aider*
-.diracrules/
 .agents/
-STS/
+/STS/
+
+# Generated codebase snapshots (repomix, etc.)
+repomix-output.xml
+
+# Match output and training artefacts
+*.pgn
+/match_results/
+/training_data/

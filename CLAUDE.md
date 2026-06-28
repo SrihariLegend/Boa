@@ -33,9 +33,8 @@ small and the user's cost low.
 src/              — engine source (main, uci, board, movegen, search, eval, tt)
   search/pruning/ — FFP, RFP, LMR (classical + learned criticality guard)
 tools/            — training pipeline, game runner, opening book
-games/            — archived reference games
 analysis/         — generated data (not committed)
-criticality.coeffs — current LMR criticality coefficients (loaded at runtime)
+criticality.coeffs — tracked reference copy of current coefficients (engine loads from target/release/)
 ```
 
 ## Build, test, and development
@@ -50,7 +49,8 @@ Start the engine: `./target/release/boa` — it speaks UCI.
 
 ## Criticality training pipeline
 
-One script drives everything:
+**Prerequisites:** Python 3 and Node.js (the game runner `criticality_dataset.mjs`
+requires Node).  One script drives everything:
 
 ```sh
 python3 tools/train.py all --games 200           # collect + train + write .coeffs
@@ -86,6 +86,16 @@ Full docs: `tools/CRITICALITY_GUIDE.md`.
   SPRT at fast time control (1+0.01 or similar).  Internal test metrics
   (AUC, RMSE, Pearson) are diagnostics — they do not substitute for
   playing-strength validation.
+
+## Coding and testing conventions
+
+- Use Rust 2021 idioms and `rustfmt` formatting.  Keep modules focused on
+  their chess-engine responsibility; prefer descriptive `snake_case`.
+- Add tests beside the code under `#[cfg(test)] mod tests`.  Use
+  position-driven assertions when possible and include a regression test
+  for every bug fix.
+- Keep local paths configurable (env vars or CLI flags).  Never commit a
+  hard-coded machine-specific absolute path.
 
 ## Commit conventions
 
