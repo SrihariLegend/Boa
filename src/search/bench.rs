@@ -24,7 +24,7 @@ pub(in crate::search) const BENCH_FENS: [&str; 20] = [
 
 pub fn bench(atk: &AttackTables, z: &Zobrist, depth: u32) {
     use crate::tt::TranspositionTable;
-    let mut tt = TranspositionTable::new(64);
+    let tt = TranspositionTable::new(64);
     let mut total_nodes = 0u64;
     let start = now_ms();
 
@@ -39,7 +39,7 @@ pub fn bench(atk: &AttackTables, z: &Zobrist, depth: u32) {
         let mut ctx = SearchContext::new(
             atk,
             z,
-            &mut tt,
+            &tt,
             limits,
             Vec::new(),
             20,

@@ -1,3 +1,12 @@
+// ============================================================
+// lmr.rs — Late Move Reductions with learned criticality guard
+//
+// This file contains both classical LMR logic and the criticality
+// model inference (coefficient loading, scoring, protection decision).
+// The training data pipeline (probe I/O, logging) lives in
+// `src/criticality/`.
+// ============================================================
+
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
@@ -256,8 +265,8 @@ fn compute_score_from_coeffs(
     ];
 
     let mut score = coeffs.intercept;
-    for i in 0..FEATURE_COUNT {
-        score += coeffs.coeffs[i] * feat[i];
+    for (&c, &f) in coeffs.coeffs.iter().zip(feat.iter()) {
+        score += c * f;
     }
     score
 }
@@ -313,9 +322,7 @@ fn legacy_criticality_score(
         - 0.123_707_657_637_899_55 * bool_feature(piece == PieceType::Rook)
         - 0.295_075_323_807_634_35 * bool_feature(piece == PieceType::Queen)
         + 0.130_156_508_673_690_16 * bool_feature(piece == PieceType::King)
-        // The trained weights for is_killer and tt_move_agreement are exactly zero.
-        + 0.0 * bool_feature(input.is_killer)
-        + 0.0 * bool_feature(input.tt_move_agreement)
+        // is_killer and tt_move_agreement trained to exactly zero; omitted.
 }
 
 // ── Shared normalisation helpers ─────────────────────────────────────────────

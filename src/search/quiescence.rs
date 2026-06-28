@@ -5,7 +5,6 @@ pub(in crate::search) fn quiescence(
     mut alpha: Score,
     beta: Score,
     ply: usize,
-    qs_ply: usize,
 ) -> Score {
     if ctx.should_stop() {
         return 0;
@@ -14,7 +13,10 @@ pub(in crate::search) fn quiescence(
     ctx.stats.qnodes += 1;
 
     if board.is_in_check(board.side) {
-        if qs_ply >= QS_CHECK_EVASION_MAX_PLY || ply >= MAX_PLY {
+        // Search all check evasions without a ply cap — evasion sequences are
+        // naturally bounded (perpetual check is caught by repetition).
+        // MAX_PLY is the only hard limit.
+        if ply >= MAX_PLY {
             return evaluate(
                 board,
                 &EvalContext {
@@ -42,7 +44,7 @@ pub(in crate::search) fn quiescence(
             if ply < 128 {
                 ctx.stack[ply].current_move = m;
             }
-            let score = -quiescence(board, ctx, -beta, -alpha, ply + 1, qs_ply + 1);
+            let score = -quiescence(board, ctx, -beta, -alpha, ply + 1);
             board.unmake_move(m, &undo, ctx.z);
 
             if ctx.stopped {
@@ -121,7 +123,7 @@ pub(in crate::search) fn quiescence(
             continue;
         }
 
-        let score = -quiescence(board, ctx, -beta, -alpha, ply + 1, qs_ply + 1);
+        let score = -quiescence(board, ctx, -beta, -alpha, ply + 1);
         board.unmake_move(m, &undo, ctx.z);
 
         if score >= beta {

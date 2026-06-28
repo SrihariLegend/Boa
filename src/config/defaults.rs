@@ -1,14 +1,4 @@
 use super::*;
-impl Default for EngineOptions {
-    fn default() -> Self {
-        EngineOptions {
-            eval: EvalOptions::default(),
-            search: SearchOptions::default(),
-            syzygy: SyzygyOptions::default(),
-            criticality: CriticalityOptions::default(),
-        }
-    }
-}
 
 impl Default for EvalOptions {
     fn default() -> Self {

@@ -1,6 +1,6 @@
 // ============================================================
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct EngineOptions {
     pub eval: EvalOptions,
     pub search: SearchOptions,
