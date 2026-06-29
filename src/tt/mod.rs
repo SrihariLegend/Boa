@@ -16,6 +16,6 @@ mod tests;
 use atomic_slot::*;
 use packing::*;
 
-pub use entry::{Bound, TtEntry};
+pub use entry::{bound_str, Bound, TtEntry};
 pub use score::{score_from_tt, score_to_tt};
 pub use table::TranspositionTable;

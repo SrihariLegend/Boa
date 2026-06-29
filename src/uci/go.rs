@@ -1,4 +1,5 @@
 use super::*;
+use crate::{probe, probe_close, probe_open};
 pub(super) struct GoContext<'a> {
     pub(super) board: &'a mut Board,
     pub(super) position_history: &'a [u64],
@@ -53,6 +54,26 @@ pub(super) fn handle_go<'a>(tokens: impl Iterator<Item = &'a str>, go: GoContext
             _ => {}
         }
     }
+
+    // Config event — once per search
+    probe!(Config, ConfigEvent {
+        tt_size_mb: go.tt.size_mb() as u32,
+        material_scale: go.options.eval.material_scale,
+        pst_scale: go.options.eval.pst_scale,
+        mobility_scale: go.options.eval.mobility_scale,
+        king_safety_scale: go.options.eval.king_safety_scale,
+        pawn_structure_scale: go.options.eval.pawn_structure_scale,
+        contempt: go.contempt,
+        syzygy_enabled: go.syzygy.is_some(),
+        max_depth: limits.max_depth,
+        move_time: limits.move_time,
+        wtime: limits.wtime,
+        btime: limits.btime,
+        winc: limits.winc,
+        binc: limits.binc,
+        moves_to_go: limits.moves_to_go,
+    });
+
     let history_for_search =
         go.position_history[..go.position_history.len().saturating_sub(1)].to_vec();
     let mut ctx = SearchContext::new(

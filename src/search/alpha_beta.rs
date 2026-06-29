@@ -1,4 +1,6 @@
 use super::*;
+use crate::probe;
+
 pub(in crate::search) fn alpha_beta(
     board: &mut Board,
     ctx: &mut SearchContext,
@@ -24,12 +26,26 @@ pub(in crate::search) fn alpha_beta(
         if board.halfmove >= 100 || is_insufficient_material(board) {
             // Contempt: positive from root side's view (root side avoids draws)
             let sign = if board.side == ctx.root_color { 1 } else { -1 };
-            return SCORE_DRAW - ctx.contempt * sign;
+            let score = SCORE_DRAW - ctx.contempt * sign;
+            probe!(DrawDetection, DrawEvent {
+                draw_type: if board.halfmove >= 100 { "fifty_move" } else { "insufficient_material" },
+                ply: ply as u32,
+                contempt_applied: ctx.contempt * sign,
+                score_returned: score,
+            });
+            return score;
         }
         // Repetition detection — check against ancestors (not self)
         if ctx.is_repetition(board) {
             let sign = if board.side == ctx.root_color { 1 } else { -1 };
-            return SCORE_DRAW - ctx.contempt * sign;
+            let score = SCORE_DRAW - ctx.contempt * sign;
+            probe!(DrawDetection, DrawEvent {
+                draw_type: "repetition",
+                ply: ply as u32,
+                contempt_applied: ctx.contempt * sign,
+                score_returned: score,
+            });
+            return score;
         }
     }
 
@@ -44,12 +60,30 @@ pub(in crate::search) fn alpha_beta(
     ctx.history_hashes.push(board.hash);
 
     // Mate distance pruning
+    let oa = alpha;
+    let ob = beta;
     let mut alpha = alpha.max(-(SCORE_MATE - ply as Score));
     let beta_md = beta.min(SCORE_MATE - ply as Score - 1);
     if alpha >= beta_md {
+        probe!(MateDistance, MateDistanceEvent {
+            ply: ply as u32,
+            original_alpha: oa,
+            clamped_alpha: alpha,
+            original_beta: ob,
+            clamped_beta: beta_md,
+            pruned: true,
+        });
         ctx.history_hashes.pop();
         return alpha;
     }
+    probe!(MateDistance, MateDistanceEvent {
+        ply: ply as u32,
+        original_alpha: oa,
+        clamped_alpha: alpha,
+        original_beta: ob,
+        clamped_beta: beta_md,
+        pruned: false,
+    });
     let beta = beta_md;
     let is_cut_node = !is_pv && beta == alpha + 1;
     let original_alpha = alpha;
@@ -111,6 +145,19 @@ pub(in crate::search) fn alpha_beta(
         if let Some(entry) = ctx.tt.probe(board.hash) {
             tt_move = entry.best;
             ctx.stats.iid_successes += 1;
+            probe!(Iid, IidEvent {
+                depth: depth,
+                reduced_depth: iid_depth,
+                tt_move_found_after_iid: true,
+                iid_search_score: 0,
+            });
+        } else {
+            probe!(Iid, IidEvent {
+                depth: depth,
+                reduced_depth: iid_depth,
+                tt_move_found_after_iid: false,
+                iid_search_score: 0,
+            });
         }
     }
 
@@ -148,6 +195,16 @@ pub(in crate::search) fn alpha_beta(
 
     // Generate and order moves
     let mut list = gen_moves(board, ctx.atk);
+
+    probe!(Movegen, MovegenEvent {
+        total_count: list.count as u32,
+        quiet_count: 0,
+        capture_count: 0,
+        evasion_count: 0,
+        promotion_count: 0,
+        in_check: board.is_in_check(board.side),
+    });
+
     score_moves(board, ctx, &mut list, tt_move, ply);
     // Lazy SMP: non-primary workers search different root moves first.
     // 3M dominates HISTORY_OVERFLOW_THRESHOLD (500k) and any killer score

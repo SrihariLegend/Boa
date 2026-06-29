@@ -1,8 +1,10 @@
 use super::*;
+use crate::sample_probe;
 pub struct TranspositionTable {
     entries: Vec<AtomicTtSlot>,
     mask: usize,
     age: AtomicU8,
+    size_mb: usize,
 }
 
 impl TranspositionTable {
@@ -16,7 +18,12 @@ impl TranspositionTable {
                 .collect(),
             mask,
             age: AtomicU8::new(0),
+            size_mb,
         }
+    }
+
+    pub fn size_mb(&self) -> usize {
+        self.size_mb
     }
 
     #[inline(always)]
@@ -36,8 +43,30 @@ impl TranspositionTable {
         }
         let entry = unpack_entry(ctrl, data);
         if entry.bound != Bound::None && entry.key == (hash >> 32) as u32 {
+            sample_probe!(4, TtProbe, TtProbeEvent {
+                operation: "probe",
+                hit: true,
+                entry_type: bound_str(entry.bound),
+                entry_depth: entry.depth,
+                entry_score: entry.score,
+                entry_age: entry.age,
+                slot_index: self.index(hash) as u8,
+                replaced: false,
+                replaced_depth: 0,
+            });
             Some(entry)
         } else {
+            sample_probe!(16, TtProbe, TtProbeEvent {
+                operation: "probe",
+                hit: false,
+                entry_type: "empty",
+                entry_depth: 0,
+                entry_score: 0,
+                entry_age: 0,
+                slot_index: self.index(hash) as u8,
+                replaced: false,
+                replaced_depth: 0,
+            });
             None
         }
     }

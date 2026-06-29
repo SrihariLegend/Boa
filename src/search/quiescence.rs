@@ -1,4 +1,6 @@
 use super::*;
+use crate::sample_probe;
+
 pub(in crate::search) fn quiescence(
     board: &mut Board,
     ctx: &mut SearchContext,
@@ -84,6 +86,10 @@ pub(in crate::search) fn quiescence(
 
     score_captures(board, ctx, &mut list);
 
+    let mut captures_searched: u32 = 0;
+    let mut delta_pruned: u32 = 0;
+    let mut see_pruned: u32 = 0;
+
     for i in 0..list.count {
         list.pick_best(i);
         let m = list.moves[i];
@@ -99,6 +105,7 @@ pub(in crate::search) fn quiescence(
             0
         };
         if is_capture && stand_pat + cap_value + DELTA_PRUNING_MARGIN < alpha {
+            delta_pruned += 1;
             continue;
         }
 
@@ -111,6 +118,7 @@ pub(in crate::search) fn quiescence(
             } else {
                 ctx.stats.see_loss_caps += 1;
                 if move_flags(m) != MF_PROMOTION {
+                    see_pruned += 1;
                     continue;
                 }
                 ctx.stats.see_loss_searched += 1;
@@ -126,6 +134,7 @@ pub(in crate::search) fn quiescence(
         let score = -quiescence(board, ctx, -beta, -alpha, ply + 1);
         board.unmake_move(m, &undo, ctx.z);
 
+        captures_searched += 1;
         if score >= beta {
             return score;
         }
@@ -133,6 +142,19 @@ pub(in crate::search) fn quiescence(
             alpha = score;
         }
     }
+
+    sample_probe!(32, Quiescence, QuiescenceEvent {
+        ply: ply as u32,
+        stand_pat_score: stand_pat,
+        alpha: alpha,
+        beta: beta,
+        final_score: alpha,
+        captures_searched: captures_searched,
+        delta_pruned_count: delta_pruned,
+        see_pruned_count: see_pruned,
+        in_check: false,
+        futility_cutoff: false,
+    });
 
     alpha
 }

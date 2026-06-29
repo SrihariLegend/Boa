@@ -87,6 +87,18 @@ Full docs: `tools/CRITICALITY_GUIDE.md`.
   (AUC, RMSE, Pearson) are diagnostics — they do not substitute for
   playing-strength validation.
 
+## Probe System
+
+When adding a new module to the engine, you MUST add probe events for it:
+1. Define event struct in `src/probe/events.rs`
+2. Add variant to `ProbeEvent` enum with its short `typ` code
+3. Add `probe!()` or `sample_probe!()` calls in the module's key decision points
+4. Add the module's field legend to the `meta_json()` function in `src/probe/mod.rs`
+
+Build with `cargo build --release --features probes` for diagnostic-enabled engine.
+Output goes to `logs/boa-probe-<timestamp>.jsonl` — one file per search.
+Full spec: `docs/superpowers/specs/2026-06-29-probe-system-design.md`
+
 ## Coding and testing conventions
 
 - Use Rust 2021 idioms and `rustfmt` formatting.  Keep modules focused on

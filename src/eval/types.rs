@@ -1,4 +1,5 @@
 use super::*;
+use crate::sample_probe;
 // ============================================================
 // Section 3: Main evaluation
 // ============================================================
@@ -92,7 +93,7 @@ pub fn evaluate_breakdown(board: &Board, ctx: &EvalContext) -> EvalBreakdown {
 
     let tempo = TEMPO_BONUS;
     let side_sign = if board.side == Color::White { 1 } else { -1 };
-    EvalBreakdown {
+    let result = EvalBreakdown {
         phase,
         material_mg: mat_mg,
         material_eg: mat_eg,
@@ -126,7 +127,45 @@ pub fn evaluate_breakdown(board: &Board, ctx: &EvalContext) -> EvalBreakdown {
         advanced_pawns_cp: blend_phase(ap_mg, ap_eg, phase),
         white_score: score,
         side_to_move_score: score * side_sign + tempo,
-    }
+    };
+
+    sample_probe!(16, Eval, EvalEvent {
+        phase: phase,
+        material_mg: mat_mg,
+        material_eg: mat_eg,
+        material_cp: result.material_cp,
+        pst_mg: pst_mg,
+        pst_eg: pst_eg,
+        pst_cp: result.pst_cp,
+        mobility_mg: mob_mg,
+        mobility_eg: mob_eg,
+        mobility_cp: result.mobility_cp,
+        mobility_white: mobility_white,
+        mobility_black: mobility_black,
+        pawn_structure_mg: pawn_mg,
+        pawn_structure_eg: pawn_eg,
+        pawn_structure_cp: result.pawn_structure_cp,
+        king_safety_mg: ks_mg,
+        king_safety_eg: ks_eg,
+        king_safety_cp: result.king_safety_cp,
+        freedom: freedom,
+        trade_down_mg: trade_mg,
+        trade_down_eg: trade_eg,
+        trade_down_cp: result.trade_down_cp,
+        weak_squares_mg: ws_mg,
+        weak_squares_eg: ws_eg,
+        weak_squares_cp: result.weak_squares_cp,
+        coordination_mg: pc_mg,
+        coordination_eg: pc_eg,
+        coordination_cp: result.coordination_cp,
+        advanced_pawns_mg: ap_mg,
+        advanced_pawns_eg: ap_eg,
+        advanced_pawns_cp: result.advanced_pawns_cp,
+        white_score: score,
+        side_to_move_score: result.side_to_move_score,
+    });
+
+    result
 }
 
 pub(in crate::eval) fn blend_phase(mg: i32, eg: i32, phase: i32) -> i32 {

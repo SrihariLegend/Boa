@@ -1,4 +1,5 @@
 use super::super::*;
+use crate::sample_probe;
 
 /// Forward futility pruning: prune quiet moves that cannot reach alpha.
 ///
@@ -15,7 +16,21 @@ use super::super::*;
 pub(in crate::search) fn should_ffp_prune(input: FfpInput) -> bool {
     let estimated_gain = ffp_margin(input);
     let required_gain = input.alpha - input.static_eval;
-    estimated_gain + FFP_BUFFER < required_gain
+    let pruned = estimated_gain + FFP_BUFFER < required_gain;
+
+    let rate = if input.depth <= 2 { 1 } else { 8 };
+    sample_probe!(rate, Ffp, FfpEvent {
+        depth: input.depth,
+        move_index: input.move_index as u32,
+        history_score: input.history_score,
+        sigma: input.sigma,
+        computed_margin: estimated_gain,
+        required_gain: required_gain,
+        pruned: pruned,
+        is_cut_node: input.is_cut_node,
+    });
+
+    pruned
 }
 
 pub fn ffp_margin(input: FfpInput) -> i32 {

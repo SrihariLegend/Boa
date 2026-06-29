@@ -1,4 +1,5 @@
 use super::super::*;
+use crate::probe;
 
 /// Reverse futility pruning (static null move).
 ///
@@ -19,7 +20,16 @@ pub(in crate::search) fn rfp_prune_score(
     sigma: i32,
 ) -> Option<Score> {
     let margin = rfp_margin(depth, sigma);
-    if depth <= RFP_MAX_DEPTH && static_eval - margin >= beta && !is_mate_score(static_eval) {
+    let pruned = depth <= RFP_MAX_DEPTH && static_eval - margin >= beta && !is_mate_score(static_eval);
+    probe!(Rfp, RfpEvent {
+        depth: depth,
+        static_eval: static_eval,
+        beta: beta,
+        sigma: sigma,
+        computed_margin: margin,
+        pruned: pruned,
+    });
+    if pruned {
         Some(static_eval - margin)
     } else {
         None

@@ -1,4 +1,5 @@
 use super::super::*;
+use crate::probe;
 
 /// σ(pos): per-ply eval-change standard deviation estimate (centipawns).
 ///
@@ -55,7 +56,21 @@ pub fn sigma(board: &Board) -> i32 {
         + VAR_W_OPEN * f_open
         + VAR_W_PHASE * f_phase;
 
-    raw.clamp(VAR_SIGMA_MIN, VAR_SIGMA_MAX).round() as i32
+    let sigma = raw.clamp(VAR_SIGMA_MIN, VAR_SIGMA_MAX).round() as i32;
+
+    probe!(Variance, VarianceEvent {
+        sigma: sigma,
+        f_mobility: f_mob,
+        f_open: f_open,
+        f_phase: f_phase,
+        mobile_piece_count: mobile as i32,
+        open_file_count: open_files as i32,
+        non_pawn_material: (board.non_pawn_material(Color::White)
+            + board.non_pawn_material(Color::Black)),
+        phase: 0, // phase computed in eval; npm above suffices for diagnosis
+    });
+
+    sigma
 }
 
 // Tests moved to pruning_tests.rs (codebase convention).

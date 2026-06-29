@@ -218,7 +218,7 @@ pub(in crate::search) fn rfp_margin_grows_with_depth() {
 
 #[test]
 pub(in crate::search) fn rfp_margin_has_correct_structure() {
-    // At d=3, σ=15: M = 10*3 + 2.326*15*1.732 = 30 + 60.4 ≈ 90
+    // At d=3, σ=15: M = 50*3 + 2.326*15*1.732 = 150 + 60.4 ≈ 210
     let m = rfp_margin(3, 15);
-    assert!(m >= 80 && m <= 100, "rfp_margin(3,15)={} out of [80,100]", m);
+    assert!(m >= 200 && m <= 220, "rfp_margin(3,15)={} out of [200,220]", m);
 }

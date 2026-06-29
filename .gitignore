@@ -30,3 +30,4 @@ repomix-output.xml
 *.pgn
 /match_results/
 /training_data/
+logs/
