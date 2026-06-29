@@ -4,6 +4,7 @@ pub mod criticality;
 pub mod diagnostics;
 pub mod eval;
 pub mod movegen;
+pub mod probe;
 pub mod search;
 pub mod syzygy;
 pub mod tt;

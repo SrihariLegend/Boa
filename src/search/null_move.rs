@@ -1,4 +1,5 @@
 use super::*;
+use crate::probe;
 
 /// Try null-move pruning. Returns Some(score) if we can cut off.
 pub(in crate::search) fn try_null_move(
@@ -37,7 +38,16 @@ pub(in crate::search) fn try_null_move(
     );
     board.unmake_null_move(&undo);
 
-    if null_score >= beta {
+    let pruned = null_score >= beta;
+    probe!(NullMove, NullMoveEvent {
+        depth: depth,
+        static_eval: static_eval,
+        beta: beta,
+        reduction: r,
+        null_move_score: null_score,
+        pruned: pruned,
+    });
+    if pruned {
         ctx.stats.null_move_cutoffs += 1;
         return Some(beta);
     }

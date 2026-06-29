@@ -1,5 +1,8 @@
 use super::*;
+use crate::{probe_close, probe_open};
+
 pub fn run() {
+    probe_open!("logs");
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{mpsc, Arc};
 
@@ -128,7 +131,10 @@ pub fn run() {
                 // Search already returned by the time this is dequeued;
                 // the input thread set the flag when it arrived.
             }
-            Some("quit") => break,
+            Some("quit") => {
+                probe_close!();
+                break;
+            }
             Some("d") | Some("display") => {
                 board.display();
             }

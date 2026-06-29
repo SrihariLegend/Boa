@@ -1,4 +1,6 @@
 use super::*;
+use crate::sample_probe;
+
 pub(in crate::search) fn static_exchange_eval(board: &Board, atk: &AttackTables, m: Move) -> i32 {
     if m == MOVE_NONE {
         return 0;

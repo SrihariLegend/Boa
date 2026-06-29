@@ -8,6 +8,15 @@ pub enum Bound {
     Upper = 3,
 }
 
+pub fn bound_str(bound: Bound) -> &'static str {
+    match bound {
+        Bound::None => "none",
+        Bound::Exact => "exact",
+        Bound::Lower => "lower",
+        Bound::Upper => "upper",
+    }
+}
+
 #[derive(Clone, Copy)]
 pub struct TtEntry {
     pub key: u32,

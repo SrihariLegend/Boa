@@ -1,4 +1,5 @@
 use super::*;
+use crate::probe;
 impl SyzygyTablebase {
     pub fn load(path_list: &str) -> Result<Option<Self>, String> {
         let trimmed = path_list.trim();
@@ -41,7 +42,17 @@ impl SyzygyTablebase {
             return None;
         }
         let pos = board_to_shakmaty(board)?;
-        probe_position_score(&self.tables, &pos, options, ply)
+        let result = probe_position_score(&self.tables, &pos, options, ply);
+        if let Some(score) = result {
+            probe!(Syzygy, SyzygyEvent {
+                result: if score > 0 { "win" } else if score < 0 { "loss" } else { "draw" },
+                distance_to_mate: if score.abs() > SCORE_MATE - 128 { (SCORE_MATE - score.abs()) as i32 } else { 0 },
+                piece_count: 0, // TODO: compute from board occupancy
+                dtz_value: 0,
+                wdl_probe_success: true,
+            });
+        }
+        result
     }
 
     pub fn probe_root(

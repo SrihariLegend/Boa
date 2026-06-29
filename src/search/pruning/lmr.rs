@@ -14,6 +14,7 @@ use std::path::Path;
 use std::sync::OnceLock;
 
 use super::super::*;
+use crate::sample_probe;
 
 // ── Runtime-loadable criticality coefficients ────────────────────────────────
 //
@@ -184,15 +185,42 @@ pub(in crate::search) fn compute_lmr_reduction_details(
         .map(|c| c.threshold)
         .unwrap_or(CRITICALITY_P97_LOGIT);
 
-    if pre_protection_reduction > 0
-        && criticality_score(input, base_reduction, pre_protection_reduction) >= threshold
-    {
+    let cs = criticality_score(input, base_reduction, pre_protection_reduction);
+    let protected = pre_protection_reduction > 0 && cs >= threshold;
+    if protected {
         reduction -= 1;
     }
 
+    let final_reduction = reduction.clamp(0, input.depth - 2);
+    let new_depth = if final_reduction > 0 {
+        (input.depth - 1 - final_reduction).max(1)
+    } else {
+        input.depth - 1
+    };
+
+    sample_probe!(4, Lmr, LmrEvent {
+        depth: input.depth,
+        ply: input.ply as u32,
+        move_index: input.move_index as u32,
+        moves_searched: input.moves_searched as u32,
+        history_score: input.history_score,
+        base_reduction: base_reduction,
+        actual_reduction: final_reduction,
+        new_depth: new_depth,
+        criticality_score: cs,
+        protected_by_criticality: protected,
+        improving: input.improving,
+        is_killer: input.is_killer,
+        is_counter: input.is_counter,
+        tt_move_agreement: input.tt_move_agreement,
+        gives_check: input.gives_check,
+        moving_piece: input.moving_piece as u8,
+        is_cut_node: input.is_cut_node,
+    });
+
     LmrReduction {
         base_reduction,
-        final_reduction: reduction.clamp(0, input.depth - 2),
+        final_reduction,
     }
 }
 
