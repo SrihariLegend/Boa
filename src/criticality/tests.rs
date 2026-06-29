@@ -54,6 +54,7 @@ pub(super) fn record_row_matches_header_width() {
         label_source: CriticalityLabelSource::CounterfactualProbe,
         reduced_score: Some(-10),
         full_score: Some(35),
+        sigma: Some(15),
     };
     assert_eq!(
         CriticalityRecord::header().split(',').count(),

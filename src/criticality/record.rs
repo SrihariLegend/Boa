@@ -1,5 +1,5 @@
 use super::*;
-pub const CRITICALITY_SCHEMA_VERSION: u32 = 1;
+pub const CRITICALITY_SCHEMA_VERSION: u32 = 2;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CriticalityEffect {
@@ -95,6 +95,9 @@ pub struct CriticalityRecord {
     pub label_source: CriticalityLabelSource,
     pub reduced_score: Option<i32>,
     pub full_score: Option<i32>,
+    /// Position variance σ(pos) at the pruning decision point (centipawns).
+    /// None for records where σ was not available (legacy or non-futility decisions).
+    pub sigma: Option<i32>,
 }
 
 impl CriticalityRecord {
@@ -104,7 +107,8 @@ impl CriticalityRecord {
             "from,to,piece_type,depth,move_index,base_reduction,final_reduction,new_depth,",
             "history_score,static_eval,has_prev_static_eval,prev_static_eval,static_eval_delta,",
             "alpha,beta,futility_margin,static_alpha_margin,is_pv,is_cut_node,improving,is_killer,is_counter,tt_move_agreement,",
-            "label_source,reduced_score,full_score,score_delta_cp,reduced_effect,full_effect,bound_changed",
+            "label_source,reduced_score,full_score,score_delta_cp,reduced_effect,full_effect,bound_changed,",
+            "sigma",
         )
     }
 
@@ -189,6 +193,8 @@ impl CriticalityRecord {
             reduced_effect.as_str().to_string(),
             full_effect.as_str().to_string(),
             bound_changed.to_string(),
+            self.sigma
+                .map_or_else(String::new, |s| s.to_string()),
         ]
         .join(",")
     }

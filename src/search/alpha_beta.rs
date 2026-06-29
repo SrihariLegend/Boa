@@ -128,9 +128,13 @@ pub(in crate::search) fn alpha_beta(
     }
     // ---- Pruning heuristics (skip in check and PV nodes) ----
 
+    // Compute position variance σ once per node for variance-aware pruning.
+    // This is O(1) bit operations — no movegen or search cost.
+    let sigma_pos = sigma(board);
+
     if !in_check && !is_pv {
         // Reverse futility pruning (static null move)
-        if let Some(rfp_score) = rfp_prune_score(static_eval, beta, depth) {
+        if let Some(rfp_score) = rfp_prune_score(static_eval, beta, depth, sigma_pos) {
             ctx.stats.rfp_cutoffs += 1;
             ctx.history_hashes.pop();
             return rfp_score;
@@ -236,6 +240,8 @@ pub(in crate::search) fn alpha_beta(
                 alpha,
                 is_cut_node,
                 move_index: quiet_move_index,
+                history_score,
+                sigma: sigma_pos,
             };
             if should_ffp_prune(ffp_input) {
                 ctx.stats.ffp_prunes += 1;
@@ -295,6 +301,7 @@ pub(in crate::search) fn alpha_beta(
                                 label_source: CriticalityLabelSource::CounterfactualProbe,
                                 reduced_score: Some(alpha),
                                 full_score: Some(full_score),
+                                sigma: Some(sigma_pos),
                             },
                         );
                     }
@@ -371,6 +378,7 @@ pub(in crate::search) fn alpha_beta(
                 is_killer,
                 is_counter,
                 tt_move_agreement: m == tt_move,
+                sigma: Some(sigma_pos),
             },
         );
 
