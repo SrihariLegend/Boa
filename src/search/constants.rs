@@ -13,39 +13,101 @@ pub(in crate::search) const ASPIRATION_MIN_DEPTH: u32 = 4;
 /// -INF/+INF re-search. Prevents pathological re-search loops (SF caps at ~4).
 pub(in crate::search) const ASPIRATION_MAX_EXPANSIONS: u32 = 4;
 
-/// Reverse futility pruning margin per depth unit (centipawns).
-/// SF uses ~67-73 (tuned via SPRT). 70 is within their range. [NEEDS SPRT]
-pub(in crate::search) const RFP_MARGIN_PER_DEPTH: i32 = 70;
+// ---- Variance-aware futility pruning ----
+// Margins are derived from a diffusive model of evaluation evolution:
+//   M(d, σ) = μ·d + z·σ·√d
+// where μ = expected per-ply improvement, z = confidence z-score,
+// σ = position-dependent per-ply eval-change std dev.
+//
+// Under an approximately diffusive model where eval changes along a line
+// have finite variance and weak dependence, uncertainty grows ∝ √d.
+// If σ varies across position types (empirically confirmed ~1.5× ratio),
+// no fixed linear margin k·d can simultaneously match both distributions —
+// a fixed margin is statistically mismatched to at least one regime.
+//
+// Reference: tools/variance_diagnostic.py and src/bin/variance_diag.rs
+// empirically confirm σ ratio ≈ 1.5× between calm and volatile positions.
+
+/// Expected per-ply eval improvement for the side to move (centipawns).
+/// This is the μ parameter in M = μ·d + z·σ·√d.
+/// Empirically ~5-15 cp per ply. 10 is a conservative initial value. [NEEDS SPRT]
+pub(in crate::search) const PRUNING_MU: i32 = 50;
+
+/// Confidence z-score for the one-sided error bound.
+/// 2.326 = Φ⁻¹(0.99) → 99% confidence, 1.645 = Φ⁻¹(0.95) → 95%.
+/// 99% is conservative for initial deployment; tighten to 95% after SPRT validation.
+pub(in crate::search) const PRUNING_Z: f64 = 2.326;
+
+/// sqrt(d) lookup for d in [0, RFP_MAX_DEPTH].
+/// Avoids floating-point sqrt in the pruning hot path.
+pub(in crate::search) const SQRT_D: [f64; 8] = [
+    0.0, 1.0, 1.414_213_562, 1.732_050_808, 2.0, 2.236_067_977, 2.449_489_743, 2.645_751_311,
+];
+
+// ---- Position variance estimator σ(pos) ----
+// σ ∈ [SIGMA_MIN, SIGMA_MAX], computed from board features via bit operations.
+// Features are normalized to [0, 1] to keep coefficients independent of scale.
+
+/// Baseline per-ply std dev (centipawns). Calm midgame floor.
+pub(in crate::search) const VAR_SIGMA_BASE: f64 = 10.0;
+
+/// Mobility coefficient: contribution at maximum mobile-piece count.
+pub(in crate::search) const VAR_W_MOBILITY: f64 = 8.0;
+
+/// Open-files coefficient: contribution when all 8 files are open.
+pub(in crate::search) const VAR_W_OPEN: f64 = 6.0;
+
+/// Phase coefficient: endgame discount (negative = endgames are calmer).
+pub(in crate::search) const VAR_W_PHASE: f64 = -4.0;
+
+/// σ clamp range (centipawns).
+pub(in crate::search) const VAR_SIGMA_MIN: f64 = 6.0;
+pub(in crate::search) const VAR_SIGMA_MAX: f64 = 24.0;
+
+/// Maximum non-pawn, non-king piece count for mobility normalization.
+/// Queen = 1 piece (not 9). 14 = 7 each side in the opening.
+pub(in crate::search) const VAR_MAX_MOBILE: f64 = 14.0;
+
+/// Maximum non-pawn material for phase normalization (centipawns).
+/// Both sides with 2N+2B+2R+1Q = 2×(640+660+1000+900) = 6400 cp.
+pub(in crate::search) const VAR_MAX_NON_PAWN_MAT: f64 = 6400.0;
+
+// ---- RFP ----
 
 /// RFP: maximum depth at which to apply.
-/// SF applies up to depth ~7-8. 6 is conservative.
 pub(in crate::search) const RFP_MAX_DEPTH: i32 = 5;
 
-/// Criticality-guided forward futility pruning: maximum remaining depth.
-/// Applied only to quiet, non-checking, non-tactical non-PV moves after legal move filtering.
+// ---- FFP ----
+
+/// FFP: maximum remaining depth.
 pub(in crate::search) const FFP_MAX_DEPTH: i32 = 4;
 
-/// CG-FFP base margin per depth unit (centipawns).
-pub(in crate::search) const FFP_M0: i32 = 70;
-
-/// CG-FFP move-index uncertainty weight (centipawns).
+/// FFP: move-index uncertainty weight (centipawns). Kept from the classical
+/// criticality-guided FFP; retune if the history term is added.
 pub(in crate::search) const FFP_W_IDX: f64 = 40.0;
 
-/// CG-FFP node-type uncertainty weight (centipawns).
-pub(in crate::search) const FFP_W_NODE: f64 = 50.0;
+/// FFP: history-score coefficient (centipawns). High-history moves are more
+/// likely to improve the eval and should have a higher estimated gain.
+/// Normalized so max history ≈ this many extra centipawns of expected gain.
+pub(in crate::search) const FFP_W_HIST: f64 = 20.0;
 
-/// CG-FFP safety buffer added to the estimated gain.
+/// FFP: history score normalizer. History scores are divided by this before
+/// clamping to [-1, 1]. 32_768 ≈ half of HISTORY_OVERFLOW_THRESHOLD.
+pub(in crate::search) const FFP_HISTORY_NORMALIZER: i32 = 32_768;
+
+/// FFP: σ reference value for normalisation (centipawns).
+/// σ values are normalised as (σ / FFP_SIGMA_REF − 1), clamped to [−1, 1].
+pub(in crate::search) const FFP_SIGMA_REF: f64 = 15.0;
+
+/// FFP: σ weight in the uncertainty term (centipawns).
+/// Higher σ → higher uncertainty → larger margin → fewer prunes in volatile positions.
+pub(in crate::search) const FFP_W_SIGMA: f64 = 30.0;
+
+/// FFP: safety buffer added to the estimated gain (centipawns).
 pub(in crate::search) const FFP_BUFFER: i32 = 0;
 
-/// CG-FFP maximum move rank used for log-scaled uncertainty.
+/// FFP: maximum move rank for log-scaled move-index uncertainty.
 pub(in crate::search) const FFP_MAX_RANK: usize = 60;
-
-/// CG-FFP logarithmic move-index scaling constant.
-pub(in crate::search) const FFP_IDX_LOG_K: f64 = 30.0;
-
-// Future CG-FFP extension points: history score and improving-flag uncertainty
-// terms can be added here when trained. The ffp_margin function has hooks
-// where these terms would plug in.
 
 /// Null-move pruning: minimum depth to attempt.
 /// Standard: 3 (CPW, SF).

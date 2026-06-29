@@ -80,12 +80,14 @@ pub(in crate::search) struct LmrReduction {
 }
 
 #[derive(Clone, Copy)]
-pub(in crate::search) struct FfpInput {
-    pub(in crate::search) depth: i32,
-    pub(in crate::search) static_eval: Score,
-    pub(in crate::search) alpha: Score,
-    pub(in crate::search) move_index: usize,
-    pub(in crate::search) is_cut_node: bool,
+pub struct FfpInput {
+    pub depth: i32,
+    pub static_eval: Score,
+    pub alpha: Score,
+    pub move_index: usize,
+    pub is_cut_node: bool,
+    pub history_score: i32,
+    pub sigma: i32,
 }
 
 pub(in crate::search) struct CriticalityRecordInput {
@@ -113,6 +115,7 @@ pub(in crate::search) struct CriticalityRecordInput {
     pub(in crate::search) is_killer: bool,
     pub(in crate::search) is_counter: bool,
     pub(in crate::search) tt_move_agreement: bool,
+    pub(in crate::search) sigma: Option<i32>,
 }
 
 // ---- Search context ----

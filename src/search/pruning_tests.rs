@@ -68,7 +68,10 @@ pub(in crate::search) fn lmr_applies_learned_criticality_p97_protection() {
 }
 
 #[test]
-pub(in crate::search) fn ffp_uses_criticality_guided_margin() {
+pub(in crate::search) fn ffp_margin_uses_history_and_move_index() {
+    // At depth=1 with μ=10: base_gain = 10*1 = 10. depth_frac = 0.
+    // search_uncertainty*z*depth_frac = 0. sigma_term ≈ 0 (σ=15 at reference).
+    // Margin ≈ 10 regardless of move_index/history (zeroed by depth_frac).
     assert_eq!(
         ffp_margin(FfpInput {
             depth: 1,
@@ -76,16 +79,34 @@ pub(in crate::search) fn ffp_uses_criticality_guided_margin() {
             alpha: 0,
             move_index: 1,
             is_cut_node: false,
+            history_score: 0,
+            sigma: 15,
         }),
-        FFP_M0
+        PRUNING_MU  // μ*1 = μ at d=1
+    );
+    // Even with extreme inputs, depth_frac=0 zeros history/index contribution
+    assert_eq!(
+        ffp_margin(FfpInput {
+            depth: 1,
+            static_eval: 0,
+            alpha: 0,
+            move_index: FFP_MAX_RANK,
+            is_cut_node: true,
+            history_score: FFP_HISTORY_NORMALIZER,
+            sigma: 15,
+        }),
+        PRUNING_MU  // same — only base_gain contributes at d=1
     );
 
+    // At max depth, early (good) moves get higher margin than late moves
     let early_all = ffp_margin(FfpInput {
         depth: FFP_MAX_DEPTH,
         static_eval: 0,
         alpha: 0,
         move_index: 1,
         is_cut_node: false,
+        history_score: 0,
+                sigma: 15,
     });
     let late_all = ffp_margin(FfpInput {
         depth: FFP_MAX_DEPTH,
@@ -93,17 +114,31 @@ pub(in crate::search) fn ffp_uses_criticality_guided_margin() {
         alpha: 0,
         move_index: FFP_MAX_RANK,
         is_cut_node: false,
+        history_score: 0,
+                sigma: 15,
     });
-    let late_cut = ffp_margin(FfpInput {
+    assert!(early_all > late_all, "early move should have higher margin");
+
+    // High history should increase margin (better δ_m estimate)
+    let neutral = ffp_margin(FfpInput {
         depth: FFP_MAX_DEPTH,
         static_eval: 0,
         alpha: 0,
-        move_index: FFP_MAX_RANK,
-        is_cut_node: true,
+        move_index: 10,
+        is_cut_node: false,
+        history_score: 0,
+                sigma: 15,
     });
-
-    assert!(early_all > late_all);
-    assert!(late_cut < late_all);
+    let good_hist = ffp_margin(FfpInput {
+        depth: FFP_MAX_DEPTH,
+        static_eval: 0,
+        alpha: 0,
+        move_index: 10,
+        is_cut_node: false,
+        history_score: FFP_HISTORY_NORMALIZER,
+                sigma: 15,
+    });
+    assert!(good_hist > neutral, "good history should increase margin");
 }
 
 #[test]
@@ -114,6 +149,8 @@ pub(in crate::search) fn ffp_prunes_only_beyond_safety_buffer() {
         alpha: 0,
         move_index: 10,
         is_cut_node: false,
+        history_score: 0,
+                sigma: 15,
     });
 
     assert!(should_ffp_prune(FfpInput {
@@ -122,6 +159,8 @@ pub(in crate::search) fn ffp_prunes_only_beyond_safety_buffer() {
         alpha: margin + FFP_BUFFER + 1,
         move_index: 10,
         is_cut_node: false,
+        history_score: 0,
+                sigma: 15,
     }));
 
     assert!(!should_ffp_prune(FfpInput {
@@ -130,5 +169,56 @@ pub(in crate::search) fn ffp_prunes_only_beyond_safety_buffer() {
         alpha: margin + FFP_BUFFER + 1,
         move_index: 10,
         is_cut_node: false,
+        history_score: 0,
+                sigma: 15,
     }));
+}
+
+// ---- Variance estimator tests ----
+
+#[test]
+pub(in crate::search) fn sigma_startpos_is_reasonable() {
+    let board = Board::startpos();
+    let s = sigma(&board);
+    // Startpos: all pieces, all files have pawns → open=0, mobile=14, phase≈0
+    // Expected: σ_base + w_mob*1 + w_open*0 + w_phase*0 = 10 + 8 = 18
+    assert!(s >= 14 && s <= 24, "startpos sigma={} out of [14,24]", s);
+}
+
+#[test]
+pub(in crate::search) fn sigma_endgame_is_lower() {
+    let board = Board::from_fen("8/8/4k3/3p4/3P4/4K3/8/8 w - - 0 1").unwrap();
+    let s = sigma(&board);
+    assert!(s >= 4 && s <= 18, "endgame sigma={} out of [4,18]", s);
+}
+
+#[test]
+pub(in crate::search) fn sigma_clamps() {
+    let board = Board::startpos();
+    let s = sigma(&board);
+    assert!(s >= VAR_SIGMA_MIN as i32);
+    assert!(s <= VAR_SIGMA_MAX as i32);
+}
+
+// ---- RFP variance-aware tests ----
+
+#[test]
+pub(in crate::search) fn rfp_margin_grows_with_sigma() {
+    let m_low = rfp_margin(3, 8);
+    let m_high = rfp_margin(3, 20);
+    assert!(m_high > m_low, "higher σ should give larger margin");
+}
+
+#[test]
+pub(in crate::search) fn rfp_margin_grows_with_depth() {
+    let m_shallow = rfp_margin(1, 15);
+    let m_deep = rfp_margin(4, 15);
+    assert!(m_deep > m_shallow, "deeper search should have larger margin");
+}
+
+#[test]
+pub(in crate::search) fn rfp_margin_has_correct_structure() {
+    // At d=3, σ=15: M = 10*3 + 2.326*15*1.732 = 30 + 60.4 ≈ 90
+    let m = rfp_margin(3, 15);
+    assert!(m >= 80 && m <= 100, "rfp_margin(3,15)={} out of [80,100]", m);
 }

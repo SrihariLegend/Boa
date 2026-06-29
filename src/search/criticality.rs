@@ -40,6 +40,7 @@ pub(in crate::search) fn build_criticality_record(
         label_source: CriticalityLabelSource::None,
         reduced_score: None,
         full_score: None,
+        sigma: input.sigma,
     })
 }
 

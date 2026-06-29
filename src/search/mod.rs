@@ -31,7 +31,7 @@ mod move_ordering;
 #[cfg(test)]
 mod move_ordering_tests;
 mod null_move;
-mod pruning;
+pub mod pruning;
 #[cfg(test)]
 mod pruning_tests;
 mod quiescence;
@@ -61,10 +61,40 @@ pub(in crate::search) use see::*;
 pub(in crate::search) use stats::*;
 pub(in crate::search) use tt_cutoff::*;
 pub(in crate::search) use types::{
-    CriticalityRecordInput, FfpInput, LmrInput, LmrReduction, SearchNode,
+    CriticalityRecordInput, LmrInput, LmrReduction, SearchNode,
 };
 
 pub use bench::bench;
 pub use context::SearchContext;
 pub use root::search;
-pub use types::{Limits, SearchResult};
+pub use types::{FfpInput, Limits, SearchResult};
+
+/// Quick fixed-depth search for diagnostics. Returns the score from the
+/// perspective of the side to move. Not for gameplay — uses caller-provided
+/// TT and attack tables (reuse across calls to avoid allocation).
+pub fn quick_search(
+    board: &mut Board,
+    options: &EngineOptions,
+    depth: i32,
+    atk: &crate::movegen::AttackTables,
+    z: &crate::board::Zobrist,
+    tt: &crate::tt::TranspositionTable,
+) -> Score {
+    use std::sync::atomic::AtomicBool;
+
+    let stop = AtomicBool::new(false);
+    let limits = Limits { max_depth: depth as u32, ..Default::default() };
+
+    let mut ctx = SearchContext::new(
+        atk, z, tt, limits, Vec::new(), 0,
+        options.clone(), None, &stop, 0, 0,
+    );
+
+    let mut pv = Vec::new();
+    alpha_beta(
+        board,
+        &mut ctx,
+        SearchNode { alpha: -SCORE_INF, beta: SCORE_INF, depth, ply: 0, is_pv: true },
+        &mut pv,
+    )
+}
