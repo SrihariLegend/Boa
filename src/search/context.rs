@@ -3,24 +3,53 @@ use super::*;
 /// Allocate a continuation-history table on the heap without stack temporaries.
 /// Each table is 6×64×6×64 = 147,456 i32s = 576 KB — too large for
 /// Box::new([[[[...]]]]) which constructs a stack temporary first.
+///
+/// Uses the same Layout for allocation and deallocation (required by Rust's
+/// allocator contract — `Box::from_raw` deallocates with Layout::new::<T>()).
 fn new_cont_table() -> Box<[[[[i32; 64]; 6]; 64]; 6]> {
-    let v: Vec<i32> = vec![-552i32; 6 * 64 * 6 * 64];
-    // leak the Vec to get a raw pointer, then re-box it as the correct type.
-    let ptr = v.leak().as_mut_ptr() as *mut [[[[i32; 64]; 6]; 64]; 6];
+    use std::alloc::{alloc, Layout};
+    let layout = Layout::new::<[[[[i32; 64]; 6]; 64]; 6]>();
+    let ptr = unsafe { alloc(layout) as *mut [[[[i32; 64]; 6]; 64]; 6] };
+    assert!(!ptr.is_null(), "cont table alloc failed");
+    // Initialize to -552
+    unsafe {
+        let p = ptr as *mut i32;
+        for i in 0..(6 * 64 * 6 * 64) {
+            p.add(i).write(-552i32);
+        }
+    }
     unsafe { Box::from_raw(ptr) }
 }
 
 /// Allocate a pawn-history table on the heap (1024×6×64 = ~1.5 MB).
 fn new_pawn_history_table() -> Box<[[[i32; 64]; 6]; 1024]> {
-    let v: Vec<i32> = vec![0i32; 1024 * 6 * 64];
-    let ptr = v.leak().as_mut_ptr() as *mut [[[i32; 64]; 6]; 1024];
+    use std::alloc::{alloc, Layout};
+    let layout = Layout::new::<[[[i32; 64]; 6]; 1024]>();
+    let ptr = unsafe { alloc(layout) as *mut [[[i32; 64]; 6]; 1024] };
+    assert!(!ptr.is_null(), "pawn history table alloc failed");
+    // Initialize to -5: bias against unproven moves.
+    unsafe {
+        let p = ptr as *mut i32;
+        for i in 0..(1024 * 6 * 64) {
+            p.add(i).write(-5i32);
+        }
+    }
     unsafe { Box::from_raw(ptr) }
 }
 
 /// Allocate a continuation-correction table on the heap (2×384×384 = ~1.1 MB).
 fn new_cont_corr_table() -> Box<[[[i32; 384]; 384]; 2]> {
-    let v: Vec<i32> = vec![0i32; 2 * 384 * 384];
-    let ptr = v.leak().as_mut_ptr() as *mut [[[i32; 384]; 384]; 2];
+    use std::alloc::{alloc, Layout};
+    let layout = Layout::new::<[[[i32; 384]; 384]; 2]>();
+    let ptr = unsafe { alloc(layout) as *mut [[[i32; 384]; 384]; 2] };
+    assert!(!ptr.is_null(), "cont corr table alloc failed");
+    // Correction tables start at zero.
+    unsafe {
+        let p = ptr as *mut i32;
+        for i in 0..(2 * 384 * 384) {
+            p.add(i).write(0i32);
+        }
+    }
     unsafe { Box::from_raw(ptr) }
 }
 
@@ -106,6 +135,9 @@ pub struct PlyInfo {
     pub cont_entry2: Option<(usize, usize)>,
     /// Correction value computed at this ply (for probe diagnostics).
     pub correction_value: Option<i32>,
+    /// Cached non-pawn zobrist hashes for this node (White, Black).
+    /// Computed once and reused by correction read + update.
+    pub non_pawn_hashes: Option<(u64, u64)>,
 }
 
 impl<'a> SearchContext<'a> {

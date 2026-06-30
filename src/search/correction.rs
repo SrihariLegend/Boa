@@ -35,7 +35,7 @@ const CORR_W3: i32 = 27;
 
 /// Compute a Zobrist hash of non-pawn pieces for a single color.
 /// Used to key the non-pawn correction tables.
-fn non_pawn_hash(board: &Board, z: &Zobrist, color: Color) -> u64 {
+pub(in crate::search) fn non_pawn_hash(board: &Board, z: &Zobrist, color: Color) -> u64 {
     let mut h: u64 = 0;
     let ci = color as usize;
     for pt in [
@@ -68,10 +68,20 @@ pub(in crate::search) fn compute_correction(
     let stm = board.side as usize;
     let pawn_idx = (board.pawn_hash as usize) % PAWN_CORR_SIZE;
 
-    let np_hash_w = non_pawn_hash(board, ctx.z, Color::White);
-    let np_hash_b = non_pawn_hash(board, ctx.z, Color::Black);
-    let np_idx_w = (np_hash_w as usize) % NONPAWN_CORR_SIZE;
-    let np_idx_b = (np_hash_b as usize) % NONPAWN_CORR_SIZE;
+    // Use cached non-pawn hashes if available (avoid recomputing twice per node).
+    let (np_idx_w, np_idx_b) = if ply < MAX_PLY {
+        if let Some((hw, hb)) = ctx.stack[ply].non_pawn_hashes {
+            (hw as usize % NONPAWN_CORR_SIZE, hb as usize % NONPAWN_CORR_SIZE)
+        } else {
+            let np_hash_w = non_pawn_hash(board, ctx.z, Color::White);
+            let np_hash_b = non_pawn_hash(board, ctx.z, Color::Black);
+            (np_hash_w as usize % NONPAWN_CORR_SIZE, np_hash_b as usize % NONPAWN_CORR_SIZE)
+        }
+    } else {
+        let np_hash_w = non_pawn_hash(board, ctx.z, Color::White);
+        let np_hash_b = non_pawn_hash(board, ctx.z, Color::Black);
+        (np_hash_w as usize % NONPAWN_CORR_SIZE, np_hash_b as usize % NONPAWN_CORR_SIZE)
+    };
 
     let mut corr = CORR_W1 * ctx.pawn_corr[stm][pawn_idx]
         + CORR_W2 * ctx.nonpawn_corr_w[stm][np_idx_w]
@@ -158,11 +168,20 @@ pub(in crate::search) fn update_correction(
             old + bonus - (old * bonus.abs()) / CORRHIST_GRAVITY;
     }
 
-    // Non-pawn correction (both colors)
-    let np_hash_w = non_pawn_hash(board, ctx.z, Color::White);
-    let np_hash_b = non_pawn_hash(board, ctx.z, Color::Black);
-    let np_idx_w = (np_hash_w as usize) % NONPAWN_CORR_SIZE;
-    let np_idx_b = (np_hash_b as usize) % NONPAWN_CORR_SIZE;
+    // Non-pawn correction (both colors) — use cached hashes if available.
+    let (np_idx_w, np_idx_b) = if ply < MAX_PLY {
+        if let Some((hw, hb)) = ctx.stack[ply].non_pawn_hashes {
+            (hw as usize % NONPAWN_CORR_SIZE, hb as usize % NONPAWN_CORR_SIZE)
+        } else {
+            let np_hash_w = non_pawn_hash(board, ctx.z, Color::White);
+            let np_hash_b = non_pawn_hash(board, ctx.z, Color::Black);
+            (np_hash_w as usize % NONPAWN_CORR_SIZE, np_hash_b as usize % NONPAWN_CORR_SIZE)
+        }
+    } else {
+        let np_hash_w = non_pawn_hash(board, ctx.z, Color::White);
+        let np_hash_b = non_pawn_hash(board, ctx.z, Color::Black);
+        (np_hash_w as usize % NONPAWN_CORR_SIZE, np_hash_b as usize % NONPAWN_CORR_SIZE)
+    };
 
     {
         let old = ctx.nonpawn_corr_w[stm][np_idx_w];

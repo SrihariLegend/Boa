@@ -172,6 +172,15 @@ pub(in crate::search) fn alpha_beta(
     } else {
         evaluate(board, &EvalContext { atk: ctx.atk, options: &ctx.options })
     };
+    // Compute and cache non-pawn hashes once per node (used by both correction
+    // read and correction update, avoiding double iteration over piece bitboards).
+    // Store on the stack so compute_correction / update_correction can reuse them.
+    if ply < MAX_PLY {
+        let np_hash_w = non_pawn_hash(board, ctx.z, Color::White);
+        let np_hash_b = non_pawn_hash(board, ctx.z, Color::Black);
+        ctx.stack[ply].non_pawn_hashes = Some((np_hash_w, np_hash_b));
+    }
+
     // Apply correction history to debias static_eval for pruning heuristics.
     // The raw static_eval is stored in the stack for correction update after
     // search returns. The corrected eval feeds into RFP, NMP, FFP, and LMR margins.
