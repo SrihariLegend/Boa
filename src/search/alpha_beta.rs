@@ -313,7 +313,7 @@ pub(in crate::search) fn alpha_beta(
             let quiet_move_index = (quiet_moves_searched + 1).min(FFP_MAX_RANK);
             let ffp_input = FfpInput {
                 depth,
-                static_eval,
+                static_eval: corrected_eval,
                 alpha,
                 is_cut_node,
                 move_index: quiet_move_index,

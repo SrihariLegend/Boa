@@ -135,6 +135,12 @@ pub(in crate::search) fn update_correction(
     raw_eval: Score,
     ply: usize,
 ) {
+    // Skip mate scores — they would inject massive spikes into the correction
+    // tables for position types that share hash buckets with unrelated positions.
+    if is_mate_score(best_score) || is_mate_score(raw_eval) {
+        return;
+    }
+
     let diff = best_score - raw_eval;
     if diff.abs() < 5 {
         return; // negligible error, skip update to avoid noise
