@@ -96,9 +96,9 @@ impl<'a> SearchContext<'a> {
             nodes: 0,
             stopped: false,
             killers: [[MOVE_NONE; 2]; 128],
-            history: [[[0i32; 64]; 6]; 2],
+            history: [[[-5i32; 64]; 6]; 2],
             counter: [[MOVE_NONE; 64]; 64],
-            cap_history: [[[[0i32; 6]; 64]; 6]; 2],
+            cap_history: [[[[-700i32; 6]; 64]; 6]; 2],
             stack: [PlyInfo::default(); 128],
             stats: SearchStats::default(),
         }
