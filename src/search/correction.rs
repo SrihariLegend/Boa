@@ -103,10 +103,10 @@ pub(in crate::search) fn compute_correction(
     if ply >= 4 {
         if let Some(prev4) = ctx.stack[ply - 4].cont_entry {
             let cont_idx = prev4.0 * 64 + prev4.1;
-            if let Some(prev2) = ctx.stack[ply - 2].cont_entry {
-                let cont2_idx = prev2.0 * 64 + prev2.1;
-                if cont_idx < CONT_CORR_SIZE && cont2_idx < CONT_CORR_SIZE {
-                    corr += CORR_W3 * ctx.cont_corr[stm][cont_idx][cont2_idx];
+            if let Some(prev1) = ctx.stack[ply - 1].cont_entry {
+                let cont1_idx = prev1.0 * 64 + prev1.1;
+                if cont_idx < CONT_CORR_SIZE && cont1_idx < CONT_CORR_SIZE {
+                    corr += CORR_W3 * ctx.cont_corr[stm][cont1_idx][cont_idx];
                 }
             }
         }
@@ -194,7 +194,7 @@ pub(in crate::search) fn update_correction(
             old + bonus - (old * bonus.abs()) / CORRHIST_GRAVITY;
     }
 
-    // Continuation correction (if enough history)
+    // Continuation correction: (prev1, prev2) and (prev1, prev4) pairs
     if ply >= 2 {
         if let (Some(prev1), Some(prev2)) = (
             ctx.stack[ply - 1].cont_entry,
@@ -206,6 +206,19 @@ pub(in crate::search) fn update_correction(
                 let old = ctx.cont_corr[stm][cont_idx][cont2_idx];
                 ctx.cont_corr[stm][cont_idx][cont2_idx] =
                     old + bonus - (old * bonus.abs()) / CORRHIST_GRAVITY;
+            }
+        }
+    }
+    if ply >= 4 {
+        if let Some(prev4) = ctx.stack[ply - 4].cont_entry {
+            let cont_idx = prev4.0 * 64 + prev4.1;
+            if let Some(prev1) = ctx.stack[ply - 1].cont_entry {
+                let cont1_idx = prev1.0 * 64 + prev1.1;
+                if cont1_idx < CONT_CORR_SIZE && cont_idx < CONT_CORR_SIZE {
+                    let old = ctx.cont_corr[stm][cont1_idx][cont_idx];
+                    ctx.cont_corr[stm][cont1_idx][cont_idx] =
+                        old + bonus - (old * bonus.abs()) / CORRHIST_GRAVITY;
+                }
             }
         }
     }
