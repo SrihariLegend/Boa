@@ -25,4 +25,7 @@ pub struct TtEntry {
     pub depth: i8,
     pub bound: Bound,
     pub age: u8,
+    /// Raw (uncorrected) static evaluation. Zero means "not stored".
+    /// When non-zero, the search can reuse this instead of calling evaluate().
+    pub raw_eval: i16,
 }

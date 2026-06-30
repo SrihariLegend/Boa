@@ -92,7 +92,7 @@ pub(in crate::search) const FFP_W_IDX: f64 = 40.0;
 pub(in crate::search) const FFP_W_HIST: f64 = 20.0;
 
 /// FFP: history score normalizer. History scores are divided by this before
-/// clamping to [-1, 1]. 32_768 ≈ half of HISTORY_OVERFLOW_THRESHOLD.
+/// clamping to [-1, 1]. 32_768 = 2 × HISTORY_GRAVITY.
 pub(in crate::search) const FFP_HISTORY_NORMALIZER: i32 = 32_768;
 
 /// FFP: σ reference value for normalisation (centipawns).
@@ -130,7 +130,8 @@ pub(in crate::search) const LMR_MIN_DEPTH: i32 = 3;
 pub(in crate::search) const LMR_LOG_DIVISOR: f64 = 2.5;
 
 /// LMR: normalize quiet history into a small reduction adjustment.
-pub(in crate::search) const LMR_HISTORY_CLAMP: i32 = 8_192;
+/// Clamped at HISTORY_GRAVITY (the natural ceiling under gravity aging).
+pub(in crate::search) const LMR_HISTORY_CLAMP: i32 = HISTORY_GRAVITY;
 pub(in crate::search) const LMR_HISTORY_NORMALIZER: i32 = 4_096;
 
 /// LMR: extra reduction when the static eval is improving for side to move.
@@ -155,9 +156,10 @@ pub(in crate::search) const CRITICALITY_INTERCEPT: f64 = -4.531_881_428_371_637;
 /// If stand_pat + capture_value + margin < alpha, skip. ~200 is standard (SF, CPW).
 pub(in crate::search) const DELTA_PRUNING_MARGIN: i32 = 200;
 
-/// History table overflow threshold — scale down when any entry exceeds this.
-/// Prevents history scores from dominating move ordering. [NEEDS TUNING]
-pub(in crate::search) const HISTORY_OVERFLOW_THRESHOLD: i32 = 500_000;
+/// History gravity constant. History values asymptotically approach ±GRAVITY
+/// via the formula: new = old + delta - old * abs(delta) / GRAVITY.
+/// 16384 (2¹⁴) is the universal standard across all top engines.
+pub(in crate::search) const HISTORY_GRAVITY: i32 = 16_384;
 
 /// Time management: assumed remaining moves when movestogo is not specified.
 /// 30 is a common default (CPW). Conservative engines use 25-40.

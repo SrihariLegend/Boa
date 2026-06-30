@@ -16,7 +16,7 @@ pub(in crate::search) fn quiet_history_updates_the_moving_side() {
     assert!(ctx.history[Color::White as usize][white_pt][move_to(white_move) as usize] > 0);
     assert_eq!(
         ctx.history[Color::Black as usize][white_pt][move_to(white_move) as usize],
-        0
+        -5 // initial value for un-updated side
     );
 
     let undo = board.make_move(white_move, &z);
@@ -27,7 +27,7 @@ pub(in crate::search) fn quiet_history_updates_the_moving_side() {
     assert!(ctx.history[Color::Black as usize][black_pt][move_to(black_move) as usize] > 0);
     assert_eq!(
         ctx.history[Color::White as usize][black_pt][move_to(black_move) as usize],
-        0
+        -5 // initial value for un-updated side
     );
     board.unmake_move(white_move, &undo, &z);
 }
@@ -50,7 +50,7 @@ pub(in crate::search) fn lmr_history_lookup_after_make_move_uses_the_mover_side(
     let mover = board.side.flip() as usize;
     let history_score = ctx.history[mover][piece_type(moving_piece) as usize][move_to(m) as usize];
     assert_eq!(mover, Color::White as usize);
-    assert_eq!(history_score, 1234);
+    assert_eq!(history_score, 1229); // init -5 + 1234 = 1229 (gravity term ~0)
 
     board.unmake_move(m, &undo, &z);
 }
