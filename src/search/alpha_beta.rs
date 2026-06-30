@@ -112,7 +112,8 @@ pub(in crate::search) fn alpha_beta(
     };
 
     // TT probe
-    let (mut tt_move, tt_cutoff) = try_tt_cutoff(ctx, board.hash, depth, alpha, beta, is_pv, ply);
+    let (mut tt_move, tt_cutoff, tt_raw_eval) =
+        try_tt_cutoff(ctx, board.hash, depth, alpha, beta, is_pv, ply);
     if let Some(s) = tt_cutoff {
         ctx.history_hashes.pop();
         return s;
@@ -161,14 +162,16 @@ pub(in crate::search) fn alpha_beta(
         }
     }
 
-    // Static evaluation for pruning heuristics
-    let static_eval = evaluate(
-        board,
-        &EvalContext {
-            atk: ctx.atk,
-            options: &ctx.options,
-        },
-    );
+    // Static evaluation for pruning heuristics — reuse TT raw_eval if available
+    let static_eval = if let Some(re) = tt_raw_eval {
+        if re != 0 {
+            re as Score
+        } else {
+            evaluate(board, &EvalContext { atk: ctx.atk, options: &ctx.options })
+        }
+    } else {
+        evaluate(board, &EvalContext { atk: ctx.atk, options: &ctx.options })
+    };
     let improving = is_improving(ctx, static_eval, ply);
     if ply < MAX_PLY {
         ctx.stack[ply].static_eval = Some(static_eval);
@@ -207,7 +210,7 @@ pub(in crate::search) fn alpha_beta(
 
     score_moves(board, ctx, &mut list, tt_move, ply);
     // Lazy SMP: non-primary workers search different root moves first.
-    // 3M dominates HISTORY_OVERFLOW_THRESHOLD (500k) and any killer score
+    // 3M dominates HISTORY_GRAVITY (16k) and any killer score
     // so the per-worker root move sorts first. Move-ordering scores are
     // unrelated to search bounds (SCORE_INF = 1_000_000), so 3M is safe here.
     if ply == 0 && ctx.smp_worker_id > 0 && list.count > 1 {
@@ -549,7 +552,7 @@ pub(in crate::search) fn alpha_beta(
         }
 
         if !ctx.in_criticality_probe && is_lmr_quiet && score <= pre_alpha {
-            add_history_score(ctx, side_to_move, moving_piece, m, -history_delta(depth));
+            add_history_score(ctx, side_to_move, moving_piece, m, history_malus(depth));
         }
 
         if score > best_score {
@@ -613,6 +616,7 @@ pub(in crate::search) fn alpha_beta(
             best_move,
             depth as i8,
             bound,
+            static_eval as i16,
         );
     }
 

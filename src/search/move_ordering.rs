@@ -123,6 +123,13 @@ pub(in crate::search) fn history_delta(depth: i32) -> i32 {
     depth * depth
 }
 
+/// Malus (negative bonus) applied to quiet moves that were searched
+/// but failed to cause a beta cutoff. Matches the current bonus formula
+/// (depth²) for symmetry — both will be upgraded together in Layer 1.
+pub(in crate::search) fn history_malus(depth: i32) -> i32 {
+    -depth * depth
+}
+
 pub(in crate::search) fn add_history_score(
     ctx: &mut SearchContext,
     color: Color,
@@ -136,28 +143,9 @@ pub(in crate::search) fn add_history_score(
     let pt = piece_type(moving_piece) as usize;
     let to = move_to(m) as usize;
     let ci = color as usize;
-    ctx.history[ci][pt][to] += delta;
-    if ctx.history[ci][pt][to].abs() > HISTORY_OVERFLOW_THRESHOLD {
-        scale_down_history(ctx, ci);
-    }
-}
-
-pub(in crate::search) fn scale_down_history(ctx: &mut SearchContext, ci: usize) {
-    for piece_history in &mut ctx.history[ci] {
-        for v in piece_history.iter_mut() {
-            *v /= 2;
-        }
-    }
-}
-
-pub(in crate::search) fn scale_down_cap_history(ctx: &mut SearchContext, ci: usize) {
-    for pt in 0..6 {
-        for sq in 0..64 {
-            for cpt in 0..6 {
-                ctx.cap_history[ci][pt][sq][cpt] /= 2;
-            }
-        }
-    }
+    let old = ctx.history[ci][pt][to];
+    // Gravity formula: new = old + delta - old * abs(delta) / GRAVITY
+    ctx.history[ci][pt][to] = old + delta - (old * delta.abs()) / HISTORY_GRAVITY;
 }
 
 pub(in crate::search) fn update_cap_history(
@@ -181,10 +169,10 @@ pub(in crate::search) fn update_cap_history(
         0
     };
     let bonus = depth * depth;
-    ctx.cap_history[ci][mover_pt][to][cap_pt] += bonus;
-    if ctx.cap_history[ci][mover_pt][to][cap_pt] > HISTORY_OVERFLOW_THRESHOLD {
-        scale_down_cap_history(ctx, ci);
-    }
+    let old = ctx.cap_history[ci][mover_pt][to][cap_pt];
+    // Gravity formula for capture history
+    ctx.cap_history[ci][mover_pt][to][cap_pt] =
+        old + bonus - (old * bonus.abs()) / HISTORY_GRAVITY;
 }
 
 /// Handle beta cutoff: update killers, history, counter moves.
