@@ -145,6 +145,14 @@ pub(in crate::search) fn update_correction(
     raw_eval: Score,
     ply: usize,
 ) {
+    // Only update at depth ≥ 4. Shallow-depth search results (d ≤ 3) are
+    // dominated by tactical noise and would poison the correction tables.
+    // With ~50x more shallow nodes than deep nodes, the volume of low-quality
+    // updates overwhelms the deep, reliable ones.
+    if depth < 4 {
+        return;
+    }
+
     // Skip mate scores — they would inject massive spikes into the correction
     // tables for position types that share hash buckets with unrelated positions.
     if is_mate_score(best_score) || is_mate_score(raw_eval) {
