@@ -234,3 +234,41 @@ pub(in crate::search) fn cont_history_initialized_to_negative_bias() {
     assert_eq!(ctx.cont1[0][0][0][0], -552);
     assert_eq!(ctx.cont1[3][40][1][20], -552);
 }
+
+#[test]
+pub(in crate::search) fn cont_history_2ply_updates_with_half_bonus() {
+    let atk = AttackTables::init();
+    let z = Zobrist::new();
+    let mut tt = TranspositionTable::new(16);
+    let stop = AtomicBool::new(false);
+    let mut ctx = test_context(&atk, &z, &mut tt, Limits::default(), &stop);
+    let mut board = Board::startpos();
+
+    // Set cont_entry at ply 0 — the 2-ply update at ply 2 reads stack[ply-2] = stack[0]
+    ctx.stack[0].cont_entry = Some((PieceType::Pawn as usize, 28)); // e2-e4
+
+    let wm = generated_move(&board, &atk, "e2e4");
+    let undo0 = board.make_move(wm, &z);
+    // ply 1: Black's turn
+    let bm = generated_move(&board, &atk, "e7e5");
+    let undo1 = board.make_move(bm, &z);
+
+    // Now at ply 2 (White's turn), cause a beta cutoff
+    let wm2 = generated_move(&board, &atk, "g1f3");
+    let wm2_pt = piece_type(board.sq_piece[move_from(wm2) as usize]) as usize;
+    let wm2_to = move_to(wm2) as usize;
+
+    handle_beta_cutoff(
+        &mut ctx, &board, wm2, 2, 6, false,
+        100, 50,
+    );
+
+    // cont2 should be updated: cont2[Pawn][28][Knight][f3]
+    // (reads stack[ply-2].cont_entry = stack[0].cont_entry)
+    let pp = PieceType::Pawn as usize;
+    let entry = ctx.cont2[pp][28][wm2_pt][wm2_to];
+    assert!(entry > -552, "cont2 should increase from -552 on beta cutoff, got {entry}");
+
+    board.unmake_move(bm, &undo1, &z);
+    board.unmake_move(wm, &undo0, &z);
+}

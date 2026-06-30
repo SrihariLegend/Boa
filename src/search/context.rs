@@ -44,6 +44,9 @@ pub struct SearchContext<'a> {
     // 6 x 64 x 6 x 64 = 147,456 entries, 576 KB. On the heap to avoid stack overflow.
     pub cont1: Box<[[[[i32; 64]; 6]; 64]; 6]>,
 
+    // Continuation history 2-ply: [prev2_piece][prev2_to][piece][to] -> i32
+    pub cont2: Box<[[[[i32; 64]; 6]; 64]; 6]>,
+
     // Stack info per ply
     pub stack: [PlyInfo; 128],
 
@@ -59,6 +62,8 @@ pub struct PlyInfo {
     /// Used by continuation history — the child reads this from `stack[ply-1]`
     /// to get the previous move's piece and destination.
     pub cont_entry: Option<(usize, usize)>,
+    /// cont_entry from ply-2 (grandparent's move). Used by continuation history 2-ply.
+    pub cont_entry2: Option<(usize, usize)>,
 }
 
 impl<'a> SearchContext<'a> {
@@ -108,6 +113,7 @@ impl<'a> SearchContext<'a> {
             counter: [[MOVE_NONE; 64]; 64],
             cap_history: [[[[-700i32; 6]; 64]; 6]; 2],
             cont1: Box::new([[[[-552i32; 64]; 6]; 64]; 6]),
+            cont2: Box::new([[[[-552i32; 64]; 6]; 64]; 6]),
             stack: [PlyInfo::default(); 128],
             stats: SearchStats::default(),
         }

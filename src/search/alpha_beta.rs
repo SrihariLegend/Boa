@@ -572,6 +572,16 @@ pub(in crate::search) fn alpha_beta(
                     ctx.cont1[pp][pto][pt][to_idx] = old + malus - (old * malus.abs()) / HISTORY_GRAVITY;
                 }
             }
+            // Cont2 malus with half magnitude
+            if ply >= 2 && ply < MAX_PLY {
+                if let Some((pp2, pto2)) = ctx.stack[ply - 2].cont_entry {
+                    let pt = piece_type(moving_piece) as usize;
+                    let to_idx = move_to(m) as usize;
+                    let old = ctx.cont2[pp2][pto2][pt][to_idx];
+                    let half_malus = history_malus(depth) / 2;
+                    ctx.cont2[pp2][pto2][pt][to_idx] = old + half_malus - (old * half_malus.abs()) / HISTORY_GRAVITY;
+                }
+            }
         }
 
         if score > best_score {

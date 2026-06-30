@@ -83,6 +83,16 @@ fn score_single_move(
             s += ctx.cont1[pp][pto][mover_pt][to_idx];
         }
     }
+    // Continuation history 2-ply: 0.7× weight relative to offset 1.
+    // Read from stack[ply-2].cont_entry (grandparent's move).
+    if ply >= 2 && ply < 128 {
+        if let Some((pp2, pto2)) = ctx.stack[ply - 2].cont_entry {
+            let mover_pt = piece_type(mover) as usize;
+            let to_idx = move_to(m) as usize;
+            // 0.7x weight: multiply then divide
+            s += (ctx.cont2[pp2][pto2][mover_pt][to_idx] * 7) / 10;
+        }
+    }
     s
 }
 
@@ -225,6 +235,16 @@ pub(in crate::search) fn handle_beta_cutoff(
             let old = ctx.cont1[pp][pto][pt][to];
             // Gravity formula for cont history — same GRAVITY, same bonus
             ctx.cont1[pp][pto][pt][to] = old + bonus - (old * bonus.abs()) / HISTORY_GRAVITY;
+        }
+    }
+    // Update continuation history 2-ply with half bonus
+    if ply >= 2 && ply < 128 {
+        if let Some((pp2, pto2)) = ctx.stack[ply - 2].cont_entry {
+            let pt = piece_type(moving_piece) as usize;
+            let to = move_to(m) as usize;
+            let old = ctx.cont2[pp2][pto2][pt][to];
+            let half_bonus = bonus / 2;
+            ctx.cont2[pp2][pto2][pt][to] = old + half_bonus - (old * half_bonus.abs()) / HISTORY_GRAVITY;
         }
     }
     if ply == 0 || ply >= 128 {
