@@ -304,12 +304,18 @@ pub(in crate::search) fn alpha_beta(
         legal_moves += 1;
 
         // Set continuation history entry for the child to read (ply+1 reads stack[ply]).
-        // Only set for quiet moves — captures use capture history, not cont history.
-        if moving_piece != PIECE_NONE && !is_capture && !is_promo && ply < MAX_PLY {
-            ctx.stack[ply].cont_entry = Some((
-                piece_type(moving_piece) as usize,
-                to as usize,
-            ));
+        // Quiet moves propagate their piece+to to the child; captures and promotions
+        // must clear the entry so the child doesn't see a stale value from a prior
+        // sibling branch.
+        if ply < MAX_PLY {
+            if moving_piece != PIECE_NONE && !is_capture && !is_promo {
+                ctx.stack[ply].cont_entry = Some((
+                    piece_type(moving_piece) as usize,
+                    to as usize,
+                ));
+            } else {
+                ctx.stack[ply].cont_entry = None;
+            }
         }
 
         let gives_check = board.is_in_check(board.side);
