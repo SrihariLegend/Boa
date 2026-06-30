@@ -62,10 +62,12 @@ pub(in crate::search) fn static_exchange_eval(board: &Board, atk: &AttackTables,
     let mut victim_type = moved_type;
     let mut victim_value = moved_type.material_value();
     let target_bb = bb(to);
-
     while depth + 1 < gain.len() {
         let Some((attacker_sq, attacker_type)) =
-            least_valuable_attacker(to, side, occ, &pieces, atk)
+            least_valuable_attacker(
+                to, side, occ, &pieces, atk,
+                board.king_sq[side as usize],
+            )
         else {
             break;
         };
@@ -117,6 +119,7 @@ pub(in crate::search) fn least_valuable_attacker(
     occ: Bb,
     pieces: &[[Bb; 6]; 2],
     atk: &AttackTables,
+    king_sq: Square,
 ) -> Option<(Square, PieceType)> {
     let attackers = attackers_to(target, color, occ, pieces, atk);
     if attackers == 0 {
@@ -132,13 +135,89 @@ pub(in crate::search) fn least_valuable_attacker(
         PieceType::Queen,
         PieceType::King,
     ] {
-        let bb = attackers & pieces[ci][pt as usize];
-        if bb != 0 {
-            return Some((bb_lsb(bb), pt));
+        let mut bb = attackers & pieces[ci][pt as usize];
+        if bb == 0 {
+            continue;
+        }
+
+        // Fast path: first attacker is usually not pinned.
+        // Only enter the slow loop if the first is actually pinned.
+        let first_sq = bb_lsb(bb);
+        if pt == PieceType::King
+            || !is_pinned(king_sq, first_sq, color, occ, pieces, atk, target)
+        {
+            return Some((first_sq, pt));
+        }
+
+        // Slow path: first attacker was pinned — scan remaining.
+        bb &= bb - 1;
+        while bb != 0 {
+            let sq = bb_lsb(bb);
+            bb &= bb - 1;
+            if !is_pinned(king_sq, sq, color, occ, pieces, atk, target) {
+                return Some((sq, pt));
+            }
         }
     }
 
     None
+}
+
+/// Check whether the piece at `sq` is absolutely pinned to its king
+/// such that it cannot legally move to `target_sq`.
+///
+/// A piece is absolutely pinned if removing it would reveal an enemy
+/// sliding piece (rook/queen on rank/file, bishop/queen on diagonal)
+/// attacking its king. However, if the piece is moving to capture the
+/// pinning piece (it moves onto the pinner's square), the pin is released
+/// — the capture removes the threat.
+#[inline(always)]
+pub(in crate::search) fn is_pinned(
+    king_sq: Square,
+    sq: Square,
+    color: Color,
+    occ: Bb,
+    pieces: &[[Bb; 6]; 2],
+    atk: &AttackTables,
+    target_sq: Square,
+) -> bool {
+    // Fast early exit (>99% of calls): piece must share a line with its king.
+    let kf = sq_file(king_sq) as i8;
+    let kr = sq_rank(king_sq) as i8;
+    let sf = sq_file(sq) as i8;
+    let sr = sq_rank(sq) as i8;
+    let same_rank = kr == sr;
+    let same_file = kf == sf;
+    let same_diag = (kf - sf).abs() == (kr - sr).abs();
+    if !same_rank && !same_file && !same_diag {
+        return false;
+    }
+
+    // If moving along the same ray toward the pinner or capturing the pinner,
+    // the piece stays on the pin line — not pinned.
+    let tf = sq_file(target_sq) as i8;
+    let tr = sq_rank(target_sq) as i8;
+    if (same_rank && kr == tr)
+        || (same_file && kf == tf)
+        || (same_diag && (kf - sf).abs() == (kr - sr).abs()
+            && (kf - tf).abs() == (kr - tr).abs()
+            && (kf - sf).signum() == (kf - tf).signum())
+    {
+        return false;
+    }
+
+    // Only now do the expensive magic bitboard lookups (<1% of calls).
+    let enemy = color.flip();
+    let enemy_idx = enemy as usize;
+    let occ_without = occ & !bb(sq);
+    let sliders = (atk.rook_attacks(king_sq, occ_without)
+        & (pieces[enemy_idx][PieceType::Rook as usize]
+            | pieces[enemy_idx][PieceType::Queen as usize]))
+        | (atk.bishop_attacks(king_sq, occ_without)
+            & (pieces[enemy_idx][PieceType::Bishop as usize]
+                | pieces[enemy_idx][PieceType::Queen as usize]));
+
+    sliders != 0 && (sliders & bb(target_sq)) == 0
 }
 
 pub(in crate::search) fn attackers_to(

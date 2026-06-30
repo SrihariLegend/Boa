@@ -111,6 +111,14 @@ pub(in crate::search) fn quiescence(
 
         if ctx.options.search.see && ctx.options.search.see_qsearch_pruning {
             let see = static_exchange_eval(board, ctx.atk, m);
+            sample_probe!(16, See, SeeEvent {
+                see_value: see,
+                captured_value: 0,
+                threshold: 0,
+                pruned_by_see: see < 0 && move_flags(m) != MF_PROMOTION,
+                searched_despite_bad_see: see < 0 && move_flags(m) == MF_PROMOTION,
+                pin_excluded: false,
+            });
             if see > 0 {
                 ctx.stats.see_win_caps += 1;
             } else if see == 0 {

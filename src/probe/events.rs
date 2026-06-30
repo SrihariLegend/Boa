@@ -457,6 +457,8 @@ pub struct SeeEvent {
     pub pruned_by_see: bool,
     #[cfg_attr(feature = "probes", serde(rename = "sr"))]
     pub searched_despite_bad_see: bool,
+    #[cfg_attr(feature = "probes", serde(rename = "px"))]
+    pub pin_excluded: bool,
 }
 
 // ============================================================
