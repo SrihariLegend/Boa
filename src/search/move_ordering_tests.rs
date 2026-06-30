@@ -272,3 +272,16 @@ pub(in crate::search) fn cont_history_2ply_updates_with_half_bonus() {
     board.unmake_move(bm, &undo1, &z);
     board.unmake_move(wm, &undo0, &z);
 }
+
+#[test]
+pub(in crate::search) fn cont_history_4ply_and_6ply_tables_exist() {
+    let atk = AttackTables::init();
+    let z = Zobrist::new();
+    let mut tt = TranspositionTable::new(16);
+    let stop = AtomicBool::new(false);
+    let ctx = test_context(&atk, &z, &mut tt, Limits::default(), &stop);
+
+    // All tables initialized to -552
+    assert_eq!(ctx.cont4[0][0][0][0], -552);
+    assert_eq!(ctx.cont6[0][0][0][0], -552);
+}

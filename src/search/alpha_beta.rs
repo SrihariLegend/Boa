@@ -582,6 +582,26 @@ pub(in crate::search) fn alpha_beta(
                     ctx.cont2[pp2][pto2][pt][to_idx] = old + half_malus - (old * half_malus.abs()) / HISTORY_GRAVITY;
                 }
             }
+            // Cont4 malus with quarter magnitude
+            if ply >= 4 && ply < MAX_PLY {
+                if let Some((pp4, pto4)) = ctx.stack[ply - 4].cont_entry {
+                    let pt = piece_type(moving_piece) as usize;
+                    let to_idx = move_to(m) as usize;
+                    let old = ctx.cont4[pp4][pto4][pt][to_idx];
+                    let quarter_malus = history_malus(depth) / 4;
+                    ctx.cont4[pp4][pto4][pt][to_idx] = old + quarter_malus - (old * quarter_malus.abs()) / HISTORY_GRAVITY;
+                }
+            }
+            // Cont6 malus with quarter magnitude
+            if ply >= 6 && ply < MAX_PLY {
+                if let Some((pp6, pto6)) = ctx.stack[ply - 6].cont_entry {
+                    let pt = piece_type(moving_piece) as usize;
+                    let to_idx = move_to(m) as usize;
+                    let old = ctx.cont6[pp6][pto6][pt][to_idx];
+                    let quarter_malus = history_malus(depth) / 4;
+                    ctx.cont6[pp6][pto6][pt][to_idx] = old + quarter_malus - (old * quarter_malus.abs()) / HISTORY_GRAVITY;
+                }
+            }
         }
 
         if score > best_score {

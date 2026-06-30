@@ -93,6 +93,22 @@ fn score_single_move(
             s += (ctx.cont2[pp2][pto2][mover_pt][to_idx] * 7) / 10;
         }
     }
+    // Continuation history offset 4: quarter weight
+    if ply >= 4 && ply < 128 {
+        if let Some((pp4, pto4)) = ctx.stack[ply - 4].cont_entry {
+            let mover_pt = piece_type(mover) as usize;
+            let to_idx = move_to(m) as usize;
+            s += ctx.cont4[pp4][pto4][mover_pt][to_idx] / 4;
+        }
+    }
+    // Continuation history offset 6: quarter weight
+    if ply >= 6 && ply < 128 {
+        if let Some((pp6, pto6)) = ctx.stack[ply - 6].cont_entry {
+            let mover_pt = piece_type(mover) as usize;
+            let to_idx = move_to(m) as usize;
+            s += ctx.cont6[pp6][pto6][mover_pt][to_idx] / 4;
+        }
+    }
     s
 }
 
@@ -245,6 +261,26 @@ pub(in crate::search) fn handle_beta_cutoff(
             let old = ctx.cont2[pp2][pto2][pt][to];
             let half_bonus = bonus / 2;
             ctx.cont2[pp2][pto2][pt][to] = old + half_bonus - (old * half_bonus.abs()) / HISTORY_GRAVITY;
+        }
+    }
+    // Update continuation history 4-ply with quarter bonus
+    if ply >= 4 && ply < 128 {
+        if let Some((pp4, pto4)) = ctx.stack[ply - 4].cont_entry {
+            let pt = piece_type(moving_piece) as usize;
+            let to = move_to(m) as usize;
+            let old = ctx.cont4[pp4][pto4][pt][to];
+            let quarter_bonus = bonus / 4;
+            ctx.cont4[pp4][pto4][pt][to] = old + quarter_bonus - (old * quarter_bonus.abs()) / HISTORY_GRAVITY;
+        }
+    }
+    // Update continuation history 6-ply with quarter bonus
+    if ply >= 6 && ply < 128 {
+        if let Some((pp6, pto6)) = ctx.stack[ply - 6].cont_entry {
+            let pt = piece_type(moving_piece) as usize;
+            let to = move_to(m) as usize;
+            let old = ctx.cont6[pp6][pto6][pt][to];
+            let quarter_bonus = bonus / 4;
+            ctx.cont6[pp6][pto6][pt][to] = old + quarter_bonus - (old * quarter_bonus.abs()) / HISTORY_GRAVITY;
         }
     }
     if ply == 0 || ply >= 128 {

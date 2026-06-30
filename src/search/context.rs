@@ -1,4 +1,15 @@
 use super::*;
+
+/// Allocate a continuation-history table on the heap without stack temporaries.
+/// Each table is 6×64×6×64 = 147,456 i32s = 576 KB — too large for
+/// Box::new([[[[...]]]]) which constructs a stack temporary first.
+fn new_cont_table() -> Box<[[[[i32; 64]; 6]; 64]; 6]> {
+    let v: Vec<i32> = vec![-552i32; 6 * 64 * 6 * 64];
+    // leak the Vec to get a raw pointer, then re-box it as the correct type.
+    let ptr = v.leak().as_mut_ptr() as *mut [[[[i32; 64]; 6]; 64]; 6];
+    unsafe { Box::from_raw(ptr) }
+}
+
 pub struct SearchContext<'a> {
     pub atk: &'a AttackTables,
     pub z: &'a Zobrist,
@@ -46,6 +57,10 @@ pub struct SearchContext<'a> {
 
     // Continuation history 2-ply: [prev2_piece][prev2_to][piece][to] -> i32
     pub cont2: Box<[[[[i32; 64]; 6]; 64]; 6]>,
+
+    // Continuation history 4-ply and 6-ply
+    pub cont4: Box<[[[[i32; 64]; 6]; 64]; 6]>,
+    pub cont6: Box<[[[[i32; 64]; 6]; 64]; 6]>,
 
     // Stack info per ply
     pub stack: [PlyInfo; 128],
@@ -112,8 +127,10 @@ impl<'a> SearchContext<'a> {
             history: [[[-5i32; 64]; 6]; 2],
             counter: [[MOVE_NONE; 64]; 64],
             cap_history: [[[[-700i32; 6]; 64]; 6]; 2],
-            cont1: Box::new([[[[-552i32; 64]; 6]; 64]; 6]),
-            cont2: Box::new([[[[-552i32; 64]; 6]; 64]; 6]),
+            cont1: new_cont_table(),
+            cont2: new_cont_table(),
+            cont4: new_cont_table(),
+            cont6: new_cont_table(),
             stack: [PlyInfo::default(); 128],
             stats: SearchStats::default(),
         }
