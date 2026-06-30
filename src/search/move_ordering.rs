@@ -119,15 +119,20 @@ pub(in crate::search) fn update_killers(ctx: &mut SearchContext, ply: usize, m: 
     }
 }
 
-pub(in crate::search) fn history_delta(depth: i32) -> i32 {
-    depth * depth
+/// History bonus for the best quiet move on a beta cutoff.
+/// Obsidian-style linear+cap formula: (175 * d + 15).min(1409).
+/// `is_strong_cutoff` adds 1 to depth when best_score > beta + 75,
+/// indicating a genuinely strong move worth a larger bonus.
+pub(in crate::search) fn history_delta(depth: i32, is_strong_cutoff: bool) -> i32 {
+    let d = depth + if is_strong_cutoff { 1 } else { 0 };
+    (175 * d + 15).min(1409)
 }
 
 /// Malus (negative bonus) applied to quiet moves that were searched
-/// but failed to cause a beta cutoff. Matches the current bonus formula
-/// (depth²) for symmetry — both will be upgraded together in Layer 1.
+/// but failed to cause a beta cutoff. Obsidian-style formula with
+/// slightly larger magnitude than the bonus for asymmetry.
 pub(in crate::search) fn history_malus(depth: i32) -> i32 {
-    -depth * depth
+    -(196 * depth - 25).min(1047).max(-1047)
 }
 
 pub(in crate::search) fn add_history_score(
@@ -168,7 +173,9 @@ pub(in crate::search) fn update_cap_history(
     } else {
         0
     };
-    let bonus = depth * depth;
+    // Capture history uses the same bonus formula — captures that cause
+    // beta cutoffs are inherently strong, so is_strong_cutoff is always true.
+    let bonus = history_delta(depth, true);
     let old = ctx.cap_history[ci][mover_pt][to][cap_pt];
     // Gravity formula for capture history
     ctx.cap_history[ci][mover_pt][to][cap_pt] =
@@ -176,6 +183,7 @@ pub(in crate::search) fn update_cap_history(
 }
 
 /// Handle beta cutoff: update killers, history, counter moves.
+/// `best_score` is the score that beat beta, used to compute is_strong_cutoff.
 pub(in crate::search) fn handle_beta_cutoff(
     ctx: &mut SearchContext,
     board: &Board,
@@ -183,6 +191,8 @@ pub(in crate::search) fn handle_beta_cutoff(
     ply: usize,
     depth: i32,
     is_capture: bool,
+    best_score: Score,
+    beta: Score,
 ) {
     // Counterfactual probes are shadow-only: they may observe a full-depth
     // score, but must not train move-ordering heuristics used by the real search.
@@ -194,7 +204,8 @@ pub(in crate::search) fn handle_beta_cutoff(
         return;
     }
     update_killers(ctx, ply, m);
-    let bonus = history_delta(depth);
+    let is_strong = best_score > beta + 75;
+    let bonus = history_delta(depth, is_strong);
     let moving_piece = board.sq_piece[move_from(m) as usize];
     add_history_score(ctx, board.side, moving_piece, m, bonus);
     if ply == 0 || ply >= 128 {

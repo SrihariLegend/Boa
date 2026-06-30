@@ -11,7 +11,7 @@ pub(in crate::search) fn quiet_history_updates_the_moving_side() {
     let mut board = Board::startpos();
 
     let white_move = generated_move(&board, &atk, "e2e4");
-    handle_beta_cutoff(&mut ctx, &board, white_move, 1, 6, false);
+    handle_beta_cutoff(&mut ctx, &board, white_move, 1, 6, false, 100, 50);
     let white_pt = piece_type(board.sq_piece[move_from(white_move) as usize]) as usize;
     assert!(ctx.history[Color::White as usize][white_pt][move_to(white_move) as usize] > 0);
     assert_eq!(
@@ -23,7 +23,7 @@ pub(in crate::search) fn quiet_history_updates_the_moving_side() {
     assert_eq!(board.side, Color::Black);
     let black_move = generated_move(&board, &atk, "e7e5");
     let black_pt = piece_type(board.sq_piece[move_from(black_move) as usize]) as usize;
-    handle_beta_cutoff(&mut ctx, &board, black_move, 1, 6, false);
+    handle_beta_cutoff(&mut ctx, &board, black_move, 1, 6, false, 100, 50);
     assert!(ctx.history[Color::Black as usize][black_pt][move_to(black_move) as usize] > 0);
     assert_eq!(
         ctx.history[Color::White as usize][black_pt][move_to(black_move) as usize],
@@ -162,4 +162,28 @@ pub(in crate::search) fn quiet_history_distribution_is_not_immediately_saturated
     assert!(max_abs < LMR_HISTORY_CLAMP);
     assert!(white_abs_sum > 0);
     assert!(black_abs_sum > 0);
+}
+
+#[test]
+pub(in crate::search) fn history_delta_obsidian_formula() {
+    // Obsidian formula: (175 * d + 15).min(1409)
+    assert_eq!(history_delta(1, false), 175 * 1 + 15); // 190
+    assert_eq!(history_delta(1, true), 175 * 2 + 15); // 365 (strong cutoff adds 1 to depth)
+    assert_eq!(history_delta(2, false), 175 * 2 + 15); // 365
+    assert_eq!(history_delta(2, true), 175 * 3 + 15); // 540
+    assert_eq!(history_delta(5, false), 175 * 5 + 15); // 890
+    assert_eq!(history_delta(5, true), 175 * 6 + 15); // 1065
+    // Cap at 1409
+    assert_eq!(history_delta(8, true), 1409); // 175*9+15 = 1590, capped
+    assert_eq!(history_delta(10, true), 1409); // well above cap
+}
+
+#[test]
+pub(in crate::search) fn history_malus_obsidian_formula() {
+    // Obsidian malus: -(196 * depth - 25).min(1047).max(-1047)
+    assert_eq!(history_malus(1), -(196 * 1 - 25)); // -171
+    assert_eq!(history_malus(2), -(196 * 2 - 25)); // -367
+    assert_eq!(history_malus(5), -(196 * 5 - 25)); // -955
+    assert_eq!(history_malus(6), -1047); // -(196*6-25) = -1151, clamped to -1047
+    assert_eq!(history_malus(10), -1047); // well below clamp
 }

@@ -573,7 +573,7 @@ pub(in crate::search) fn alpha_beta(
                 ctx.stats.first_move_cutoffs += 1;
             }
             bound = Bound::Lower;
-            handle_beta_cutoff(ctx, board, m, ply, depth, is_capture);
+            handle_beta_cutoff(ctx, board, m, ply, depth, is_capture, score, beta);
             break;
         }
     }
