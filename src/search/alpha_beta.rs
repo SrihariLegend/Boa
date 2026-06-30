@@ -172,6 +172,10 @@ pub(in crate::search) fn alpha_beta(
     } else {
         evaluate(board, &EvalContext { atk: ctx.atk, options: &ctx.options })
     };
+    // Apply correction history to debias static_eval for pruning heuristics.
+    // The raw static_eval is stored in the stack for correction update after
+    // search returns. The corrected eval feeds into RFP, NMP, FFP, and LMR margins.
+    let corrected_eval = corrected_eval(ctx, board, static_eval, ply);
     let improving = is_improving(ctx, static_eval, ply);
     if ply < MAX_PLY {
         ctx.stack[ply].static_eval = Some(static_eval);
@@ -184,13 +188,13 @@ pub(in crate::search) fn alpha_beta(
 
     if !in_check && !is_pv {
         // Reverse futility pruning (static null move)
-        if let Some(rfp_score) = rfp_prune_score(static_eval, beta, depth, sigma_pos) {
+        if let Some(rfp_score) = rfp_prune_score(corrected_eval, beta, depth, sigma_pos) {
             ctx.stats.rfp_cutoffs += 1;
             ctx.history_hashes.pop();
             return rfp_score;
         }
 
-        if let Some(null_score) = try_null_move(board, ctx, beta, depth, ply, static_eval) {
+        if let Some(null_score) = try_null_move(board, ctx, beta, depth, ply, corrected_eval) {
             ctx.history_hashes.pop();
             return null_score;
         }
@@ -654,6 +658,16 @@ pub(in crate::search) fn alpha_beta(
     // an over-tight upper bound that ignores the unsearched pruned moves.
     if ffp_pruned_any && bound == Bound::Upper {
         best_score = best_score.max(original_alpha);
+    }
+
+    // Update correction history using the search result vs raw eval.
+    // Uses raw_eval (the uncorrected static evaluation), NOT corrected_eval.
+    // The correction learns the TOTAL eval error, not the residual.
+    if !ctx.in_criticality_probe {
+        let raw_eval_for_correction = ctx.stack[ply]
+            .static_eval
+            .unwrap_or(static_eval);
+        update_correction(ctx, board, depth, best_score, raw_eval_for_correction, ply);
     }
 
     // TT store (mate scores converted to node-relative distance). Do not let

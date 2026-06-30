@@ -327,3 +327,50 @@ pub(in crate::search) fn pawn_hash_changes_after_pawn_move() {
     assert_eq!(board.pawn_hash, hash_before,
         "pawn hash should be restored after unmake");
 }
+
+#[test]
+pub(in crate::search) fn correction_history_is_zero_on_startpos() {
+    let atk = AttackTables::init();
+    let z = Zobrist::new();
+    let mut tt = TranspositionTable::new(16);
+    let stop = AtomicBool::new(false);
+    let ctx = test_context(&atk, &z, &mut tt, Limits::default(), &stop);
+    let board = Board::startpos();
+
+    // At the start position, correction should be zero (no history yet)
+    let corr = compute_correction(&ctx, &board, 0);
+    assert_eq!(corr, 0, "correction should be zero with no history");
+}
+
+#[test]
+pub(in crate::search) fn correction_history_updates_after_search() {
+    let atk = AttackTables::init();
+    let z = Zobrist::new();
+    let mut tt = TranspositionTable::new(16);
+    let stop = AtomicBool::new(false);
+    let mut ctx = test_context(&atk, &z, &mut tt, Limits::default(), &stop);
+    let board = Board::startpos();
+
+    // Simulate a search returning a score that differs from raw eval
+    let raw_eval = 30;
+    let best_score = 70;
+
+    update_correction(&mut ctx, &board, 6, best_score, raw_eval, 1);
+
+    let corr = compute_correction(&ctx, &board, 1);
+    assert!(corr > 0, "correction should be positive after positive diff, got {corr}");
+}
+
+#[test]
+pub(in crate::search) fn correction_history_components_exist() {
+    let atk = AttackTables::init();
+    let z = Zobrist::new();
+    let mut tt = TranspositionTable::new(16);
+    let stop = AtomicBool::new(false);
+    let ctx = test_context(&atk, &z, &mut tt, Limits::default(), &stop);
+
+    assert_eq!(ctx.pawn_corr[0][0], 0);
+    assert_eq!(ctx.nonpawn_corr_w[0][0], 0);
+    assert_eq!(ctx.nonpawn_corr_b[0][0], 0);
+    assert_eq!(ctx.cont_corr[0][0][0], 0);
+}

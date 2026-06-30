@@ -17,6 +17,13 @@ fn new_pawn_history_table() -> Box<[[[i32; 64]; 6]; 1024]> {
     unsafe { Box::from_raw(ptr) }
 }
 
+/// Allocate a continuation-correction table on the heap (2×384×384 = ~1.1 MB).
+fn new_cont_corr_table() -> Box<[[[i32; 384]; 384]; 2]> {
+    let v: Vec<i32> = vec![0i32; 2 * 384 * 384];
+    let ptr = v.leak().as_mut_ptr() as *mut [[[i32; 384]; 384]; 2];
+    unsafe { Box::from_raw(ptr) }
+}
+
 pub struct SearchContext<'a> {
     pub atk: &'a AttackTables,
     pub z: &'a Zobrist,
@@ -72,6 +79,13 @@ pub struct SearchContext<'a> {
     /// Pawn history: [pawn_hash % 1024][piece_type][to_sq] -> i32
     /// Keyed by pawn structure hash instead of the previous move.
     pub pawn_history: Box<[[[i32; 64]; 6]; 1024]>,
+
+    /// Correction history tables — per-thread online statistical correction to
+    /// static eval. Learn systematic eval biases for specific position types.
+    pub pawn_corr: Box<[[i32; 16384]; 2]>,         // [stm][pawn_hash % 16384]
+    pub nonpawn_corr_w: Box<[[i32; 16384]; 2]>,     // [stm][non_pawn_hash(White) % 16384]
+    pub nonpawn_corr_b: Box<[[i32; 16384]; 2]>,     // [stm][non_pawn_hash(Black) % 16384]
+    pub cont_corr: Box<[[[i32; 384]; 384]; 2]>,     // [stm][prev_piece_to][prev2_piece_to]
 
     // Stack info per ply
     pub stack: [PlyInfo; 128],
@@ -143,6 +157,10 @@ impl<'a> SearchContext<'a> {
             cont4: new_cont_table(),
             cont6: new_cont_table(),
             pawn_history: new_pawn_history_table(),
+            pawn_corr: Box::new([[0i32; 16384]; 2]),
+            nonpawn_corr_w: Box::new([[0i32; 16384]; 2]),
+            nonpawn_corr_b: Box::new([[0i32; 16384]; 2]),
+            cont_corr: new_cont_corr_table(),
             stack: [PlyInfo::default(); 128],
             stats: SearchStats::default(),
         }

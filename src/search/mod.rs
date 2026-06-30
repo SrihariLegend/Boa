@@ -26,6 +26,7 @@ mod alpha_beta;
 mod bench;
 mod constants;
 mod context;
+mod correction;
 mod criticality;
 mod move_ordering;
 #[cfg(test)]
@@ -52,6 +53,7 @@ mod types;
 pub(in crate::search) use alpha_beta::*;
 pub(in crate::search) use constants::*;
 pub(in crate::search) use context::now_ms;
+pub(in crate::search) use correction::*;
 pub(in crate::search) use criticality::*;
 pub(in crate::search) use move_ordering::*;
 pub(in crate::search) use null_move::*;
