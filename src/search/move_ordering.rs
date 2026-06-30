@@ -74,6 +74,13 @@ fn score_single_move(
     if mover != PIECE_NONE {
         s += ctx.history[us][piece_type(mover) as usize][move_to(m) as usize];
     }
+    // Pawn history: position-type-aware history with 0.5x weight
+    {
+        let pawn_idx = (board.pawn_hash & 1023) as usize;
+        let mover_pt = piece_type(mover) as usize;
+        let to_idx = move_to(m) as usize;
+        s += ctx.pawn_history[pawn_idx][mover_pt][to_idx] / 2;
+    }
     // Continuation history (1-ply): if the previous move exists, look up
     // cont1[prev_piece][prev_to][current_piece][current_to].
     if ply > 0 && ply < 128 {
@@ -243,6 +250,15 @@ pub(in crate::search) fn handle_beta_cutoff(
     let bonus = history_delta(depth, is_strong);
     let moving_piece = board.sq_piece[move_from(m) as usize];
     add_history_score(ctx, board.side, moving_piece, m, bonus);
+    // Update pawn history on beta cutoff (same bonus as butterfly)
+    {
+        let pawn_idx = (board.pawn_hash & 1023) as usize;
+        let pt = piece_type(moving_piece) as usize;
+        let to = move_to(m) as usize;
+        let old = ctx.pawn_history[pawn_idx][pt][to];
+        ctx.pawn_history[pawn_idx][pt][to] = old + bonus
+            - (old * bonus.abs()) / HISTORY_GRAVITY;
+    }
     // Update continuation history 1-ply
     if ply > 0 && ply < 128 {
         if let Some((pp, pto)) = ctx.stack[ply - 1].cont_entry {

@@ -14,6 +14,7 @@ impl Board {
             halfmove: 0,
             fullmove: 1,
             hash: 0,
+            pawn_hash: 0,
             king_sq: [NO_SQUARE; 2],
         }
     }
@@ -39,6 +40,9 @@ impl Board {
         self.occ_all |= bb(sq);
         self.sq_piece[sq as usize] = p;
         self.hash ^= z.piece_sq[c][pt][sq as usize];
+        if pt == PieceType::Pawn as usize {
+            self.pawn_hash ^= z.piece_sq[c][pt][sq as usize];
+        }
         if piece_type(p) == PieceType::King {
             self.king_sq[c] = sq;
         }
@@ -57,6 +61,9 @@ impl Board {
         self.occ_all &= !bb(sq);
         self.sq_piece[sq as usize] = PIECE_NONE;
         self.hash ^= z.piece_sq[c][pt][sq as usize];
+        if pt == PieceType::Pawn as usize {
+            self.pawn_hash ^= z.piece_sq[c][pt][sq as usize];
+        }
     }
 
     // ---- FEN parsing ----

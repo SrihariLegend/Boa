@@ -10,6 +10,13 @@ fn new_cont_table() -> Box<[[[[i32; 64]; 6]; 64]; 6]> {
     unsafe { Box::from_raw(ptr) }
 }
 
+/// Allocate a pawn-history table on the heap (1024×6×64 = ~1.5 MB).
+fn new_pawn_history_table() -> Box<[[[i32; 64]; 6]; 1024]> {
+    let v: Vec<i32> = vec![0i32; 1024 * 6 * 64];
+    let ptr = v.leak().as_mut_ptr() as *mut [[[i32; 64]; 6]; 1024];
+    unsafe { Box::from_raw(ptr) }
+}
+
 pub struct SearchContext<'a> {
     pub atk: &'a AttackTables,
     pub z: &'a Zobrist,
@@ -61,6 +68,10 @@ pub struct SearchContext<'a> {
     // Continuation history 4-ply and 6-ply
     pub cont4: Box<[[[[i32; 64]; 6]; 64]; 6]>,
     pub cont6: Box<[[[[i32; 64]; 6]; 64]; 6]>,
+
+    /// Pawn history: [pawn_hash % 1024][piece_type][to_sq] -> i32
+    /// Keyed by pawn structure hash instead of the previous move.
+    pub pawn_history: Box<[[[i32; 64]; 6]; 1024]>,
 
     // Stack info per ply
     pub stack: [PlyInfo; 128],
@@ -131,6 +142,7 @@ impl<'a> SearchContext<'a> {
             cont2: new_cont_table(),
             cont4: new_cont_table(),
             cont6: new_cont_table(),
+            pawn_history: new_pawn_history_table(),
             stack: [PlyInfo::default(); 128],
             stats: SearchStats::default(),
         }

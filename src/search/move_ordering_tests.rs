@@ -285,3 +285,45 @@ pub(in crate::search) fn cont_history_4ply_and_6ply_tables_exist() {
     assert_eq!(ctx.cont4[0][0][0][0], -552);
     assert_eq!(ctx.cont6[0][0][0][0], -552);
 }
+
+#[test]
+pub(in crate::search) fn pawn_history_updates_on_beta_cutoff() {
+    let atk = AttackTables::init();
+    let z = Zobrist::new();
+    let mut tt = TranspositionTable::new(16);
+    let stop = AtomicBool::new(false);
+    let mut ctx = test_context(&atk, &z, &mut tt, Limits::default(), &stop);
+    let board = Board::startpos();
+
+    let white_move = generated_move(&board, &atk, "e2e4");
+    let w_pt = piece_type(board.sq_piece[move_from(white_move) as usize]) as usize;
+    let w_to = move_to(white_move) as usize;
+
+    let pawn_idx = (board.pawn_hash & 1023) as usize;
+    assert_eq!(ctx.pawn_history[pawn_idx][w_pt][w_to], 0);
+
+    handle_beta_cutoff(
+        &mut ctx, &board, white_move, 1, 6, false,
+        100, 50,
+    );
+
+    assert!(ctx.pawn_history[pawn_idx][w_pt][w_to] > 0,
+        "pawn history should increase on beta cutoff");
+}
+
+#[test]
+pub(in crate::search) fn pawn_hash_changes_after_pawn_move() {
+    let atk = AttackTables::init();
+    let z = Zobrist::new();
+    let mut board = Board::startpos();
+    let hash_before = board.pawn_hash;
+
+    let wm = generated_move(&board, &atk, "e2e4");
+    let undo = board.make_move(wm, &z);
+    assert_ne!(board.pawn_hash, hash_before,
+        "pawn hash should change after a pawn move");
+
+    board.unmake_move(wm, &undo, &z);
+    assert_eq!(board.pawn_hash, hash_before,
+        "pawn hash should be restored after unmake");
+}

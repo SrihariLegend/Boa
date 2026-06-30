@@ -22,6 +22,9 @@ pub struct Board {
     pub fullmove: u16,
     // Zobrist hash of current position
     pub hash: u64,
+    /// Zobrist hash of pawn structure only (pawns of both colors).
+    /// Used by pawn history table for position-type-aware move ordering.
+    pub pawn_hash: u64,
     // King squares cache
     pub king_sq: [Square; 2],
 }
