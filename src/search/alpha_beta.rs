@@ -286,6 +286,15 @@ pub(in crate::search) fn alpha_beta(
         }
         legal_moves += 1;
 
+        // Set continuation history entry for the child to read (ply+1 reads stack[ply]).
+        // Only set for quiet moves — captures use capture history, not cont history.
+        if moving_piece != PIECE_NONE && !is_capture && !is_promo && ply < MAX_PLY {
+            ctx.stack[ply].cont_entry = Some((
+                piece_type(moving_piece) as usize,
+                to as usize,
+            ));
+        }
+
         let gives_check = board.is_in_check(board.side);
         let is_quiet = !is_capture && !is_promo && !gives_check;
         let is_lmr_quiet = is_quiet;
@@ -553,6 +562,16 @@ pub(in crate::search) fn alpha_beta(
 
         if !ctx.in_criticality_probe && is_lmr_quiet && score <= pre_alpha {
             add_history_score(ctx, side_to_move, moving_piece, m, history_malus(depth));
+            // Apply malus to continuation history for failed quiet moves
+            if ply > 0 && ply < MAX_PLY {
+                if let Some((pp, pto)) = ctx.stack[ply - 1].cont_entry {
+                    let pt = piece_type(moving_piece) as usize;
+                    let to_idx = move_to(m) as usize;
+                    let old = ctx.cont1[pp][pto][pt][to_idx];
+                    let malus = history_malus(depth);
+                    ctx.cont1[pp][pto][pt][to_idx] = old + malus - (old * malus.abs()) / HISTORY_GRAVITY;
+                }
+            }
         }
 
         if score > best_score {

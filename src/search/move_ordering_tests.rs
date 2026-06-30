@@ -187,3 +187,50 @@ pub(in crate::search) fn history_malus_obsidian_formula() {
     assert_eq!(history_malus(6), -1047); // -(196*6-25) = -1151, clamped to -1047
     assert_eq!(history_malus(10), -1047); // well below clamp
 }
+
+#[test]
+pub(in crate::search) fn cont_history_1ply_updates_on_beta_cutoff() {
+    let atk = AttackTables::init();
+    let z = Zobrist::new();
+    let mut tt = TranspositionTable::new(16);
+    let stop = AtomicBool::new(false);
+    let mut ctx = test_context(&atk, &z, &mut tt, Limits::default(), &stop);
+    let mut board = Board::startpos();
+
+    // Make a move at ply 0 and set cont_entry for the child
+    let white_move = generated_move(&board, &atk, "e2e4");
+    let white_piece = board.sq_piece[move_from(white_move) as usize];
+    let white_pt = piece_type(white_piece) as usize;
+    let white_to = move_to(white_move) as usize;
+    ctx.stack[0].cont_entry = Some((white_pt, white_to));
+
+    let undo = board.make_move(white_move, &z);
+    // Now at ply 1 (Black's turn)
+    let black_move = generated_move(&board, &atk, "e7e5");
+    let black_piece = board.sq_piece[move_from(black_move) as usize];
+    let black_pt = piece_type(black_piece) as usize;
+    let black_to = move_to(black_move) as usize;
+
+    // Simulate beta cutoff at ply 1 — should update cont1[white_pt][white_to][black_pt][black_to]
+    handle_beta_cutoff(
+        &mut ctx, &board, black_move, 1, 6, false,
+        100, 50, // best_score=100, beta=50
+    );
+
+    let entry = ctx.cont1[white_pt][white_to][black_pt][black_to];
+    assert!(entry > -552, "cont history should increase from -552 on beta cutoff, got {entry}");
+
+    board.unmake_move(white_move, &undo, &z);
+}
+
+#[test]
+pub(in crate::search) fn cont_history_initialized_to_negative_bias() {
+    let atk = AttackTables::init();
+    let z = Zobrist::new();
+    let mut tt = TranspositionTable::new(16);
+    let stop = AtomicBool::new(false);
+    let ctx = test_context(&atk, &z, &mut tt, Limits::default(), &stop);
+
+    assert_eq!(ctx.cont1[0][0][0][0], -552);
+    assert_eq!(ctx.cont1[3][40][1][20], -552);
+}
