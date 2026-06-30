@@ -249,6 +249,36 @@ pub(in crate::search) fn search_single(
         dropped_probe_events: 0,
     });
 
+    // Emit continuation history diagnostic probes (one per table)
+    probe!(ContHistory, ContHistoryEvent {
+        table: "cont1",
+        hit_rate: 0.0,
+        avg_score: 0.0,
+        max_abs: 0,
+        update_freq: ctx.stats.cont1_update_count,
+    });
+    probe!(ContHistory, ContHistoryEvent {
+        table: "cont2",
+        hit_rate: 0.0,
+        avg_score: 0.0,
+        max_abs: 0,
+        update_freq: ctx.stats.cont2_update_count,
+    });
+    probe!(ContHistory, ContHistoryEvent {
+        table: "cont4",
+        hit_rate: 0.0,
+        avg_score: 0.0,
+        max_abs: 0,
+        update_freq: ctx.stats.cont4_update_count,
+    });
+    probe!(ContHistory, ContHistoryEvent {
+        table: "cont6",
+        hit_rate: 0.0,
+        avg_score: 0.0,
+        max_abs: 0,
+        update_freq: ctx.stats.cont6_update_count,
+    });
+
     SearchResult {
         best_move,
         score: best_score,

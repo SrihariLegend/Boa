@@ -104,6 +104,8 @@ pub struct PlyInfo {
     pub cont_entry: Option<(usize, usize)>,
     /// cont_entry from ply-2 (grandparent's move). Used by continuation history 2-ply.
     pub cont_entry2: Option<(usize, usize)>,
+    /// Correction value computed at this ply (for probe diagnostics).
+    pub correction_value: Option<i32>,
 }
 
 impl<'a> SearchContext<'a> {

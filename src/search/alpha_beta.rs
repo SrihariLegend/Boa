@@ -1,5 +1,5 @@
 use super::*;
-use crate::probe;
+use crate::{probe, sample_probe};
 
 pub(in crate::search) fn alpha_beta(
     board: &mut Board,
@@ -175,7 +175,11 @@ pub(in crate::search) fn alpha_beta(
     // Apply correction history to debias static_eval for pruning heuristics.
     // The raw static_eval is stored in the stack for correction update after
     // search returns. The corrected eval feeds into RFP, NMP, FFP, and LMR margins.
-    let corrected_eval = corrected_eval(ctx, board, static_eval, ply);
+    let corr_val = compute_correction(ctx, board, ply);
+    let corrected_eval = static_eval + corr_val / 512;
+    if ply < MAX_PLY {
+        ctx.stack[ply].correction_value = Some(corr_val);
+    }
     let improving = is_improving(ctx, static_eval, ply);
     if ply < MAX_PLY {
         ctx.stack[ply].static_eval = Some(static_eval);
@@ -668,6 +672,19 @@ pub(in crate::search) fn alpha_beta(
             .static_eval
             .unwrap_or(static_eval);
         update_correction(ctx, board, depth, best_score, raw_eval_for_correction, ply);
+        ctx.stats.corr_update_count += 1;
+
+        // Emit correction history probe at sampled nodes (1 in 256 to limit volume)
+        sample_probe!(256, CorrectionHistory, CorrectionHistoryEvent {
+            correction_value: ctx.stack[ply].correction_value.unwrap_or(0),
+            raw_eval: raw_eval_for_correction,
+            corrected_eval: corrected_eval,
+            diff: best_score - raw_eval_for_correction,
+            pawn_corr: 0,
+            nonpawn_corr: 0,
+            cont_corr: 0,
+            ply: ply as u32,
+        });
     }
 
     // TT store (mate scores converted to node-relative distance). Do not let
