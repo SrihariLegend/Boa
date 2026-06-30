@@ -71,7 +71,15 @@ impl TranspositionTable {
         }
     }
 
-    pub fn store(&self, hash: u64, score: Score, best: Move, depth: i8, bound: Bound) {
+    pub fn store(
+        &self,
+        hash: u64,
+        score: Score,
+        best: Move,
+        depth: i8,
+        bound: Bound,
+        raw_eval: i16,
+    ) {
         let slot = &self.entries[self.index(hash)];
         let key = (hash >> 32) as u32;
         let age = self.age.load(Ordering::Relaxed);
@@ -85,7 +93,8 @@ impl TranspositionTable {
         }
 
         slot.ctrl.store(CTRL_BUSY, Ordering::Release);
-        slot.data.store(pack_data(score, best), Ordering::Release);
+        slot.data
+            .store(pack_data(score, best, raw_eval), Ordering::Release);
         slot.ctrl
             .store(pack_ctrl(key, depth, bound, age), Ordering::Release);
     }
