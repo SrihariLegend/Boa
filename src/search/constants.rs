@@ -33,10 +33,9 @@ pub(in crate::search) const ASPIRATION_MAX_EXPANSIONS: u32 = 4;
 /// Empirically ~5-15 cp per ply. 10 is a conservative initial value. [NEEDS SPRT]
 pub(in crate::search) const PRUNING_MU: i32 = 50;
 
-/// Confidence z-score for the one-sided error bound.
-/// 2.326 = Φ⁻¹(0.99) → 99% confidence, 1.645 = Φ⁻¹(0.95) → 95%.
-/// 99% is conservative for initial deployment; tighten to 95% after SPRT validation.
-pub(in crate::search) const PRUNING_Z: f64 = 2.326;
+/// Confidence z-score disabled — variance-aware RFP margin moved to research.
+/// See EXPERIMENTS.md § "Variance-Aware Futility Pruning".
+pub(in crate::search) const PRUNING_Z: f64 = 0.0;
 
 /// sqrt(d) lookup for d in [0, RFP_MAX_DEPTH].
 /// Avoids floating-point sqrt in the pruning hot path.
@@ -99,9 +98,9 @@ pub(in crate::search) const FFP_HISTORY_NORMALIZER: i32 = 32_768;
 /// σ values are normalised as (σ / FFP_SIGMA_REF − 1), clamped to [−1, 1].
 pub(in crate::search) const FFP_SIGMA_REF: f64 = 15.0;
 
-/// FFP: σ weight in the uncertainty term (centipawns).
-/// Higher σ → higher uncertainty → larger margin → fewer prunes in volatile positions.
-pub(in crate::search) const FFP_W_SIGMA: f64 = 30.0;
+/// FFP σ term disabled — variance-aware FFP moved to research.
+/// See EXPERIMENTS.md § "Variance-Aware Futility Pruning".
+pub(in crate::search) const FFP_W_SIGMA: f64 = 0.0;
 
 /// FFP: safety buffer added to the estimated gain (centipawns).
 pub(in crate::search) const FFP_BUFFER: i32 = 0;

@@ -60,11 +60,9 @@ pub(in crate::search) fn lmr_applies_learned_criticality_p97_protection() {
     critical.beta = -1_900;
     critical.is_counter = true;
 
-    assert!(
-        criticality_score(critical, baseline_reduction, baseline_reduction)
-            >= CRITICALITY_P97_LOGIT
-    );
-    assert_eq!(lmr_reduction_for(critical), baseline_reduction - 1);
+    // Learned LMR criticality is disabled (moved to research branch).
+    // The model still scores but protection is gated to false.
+    assert_eq!(lmr_reduction_for(critical), baseline_reduction);
 }
 
 #[test]
@@ -204,9 +202,11 @@ pub(in crate::search) fn sigma_clamps() {
 
 #[test]
 pub(in crate::search) fn rfp_margin_grows_with_sigma() {
+    // PRUNING_Z = 0 (variance term disabled): margins are independent of σ.
+    // Both calls should return the same value (mu*d = 150).
     let m_low = rfp_margin(3, 8);
     let m_high = rfp_margin(3, 20);
-    assert!(m_high > m_low, "higher σ should give larger margin");
+    assert_eq!(m_high, m_low, "σ should not affect margin when PRUNING_Z=0");
 }
 
 #[test]
@@ -218,7 +218,7 @@ pub(in crate::search) fn rfp_margin_grows_with_depth() {
 
 #[test]
 pub(in crate::search) fn rfp_margin_has_correct_structure() {
-    // At d=3, σ=15: M = 50*3 + 2.326*15*1.732 = 150 + 60.4 ≈ 210
+    // PRUNING_Z = 0 → classical margin: M = μ·d = 50*3 = 150
     let m = rfp_margin(3, 15);
-    assert!(m >= 200 && m <= 220, "rfp_margin(3,15)={} out of [200,220]", m);
+    assert_eq!(m, 150, "rfp_margin(3,15) should be 150 with classical formula");
 }

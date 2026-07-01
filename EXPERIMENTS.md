@@ -241,3 +241,123 @@ Pending z-sweep → tail inspection → SPRT.
 
 **Replaces entries above:** The old "Unified ML model for FFP/RFP" entry
 (line 31) is superseded — this approach is purely algorithmic, not learned.
+
+## Moved to Research (2026-07-01)
+
+These systems were part of the Layer 7 research layer but were deployed
+before Layers 0-6 were complete. After Layer 1 (Information) was built,
+diagnostic instrumentation revealed that both systems suffered from
+**covariate shift** — their feature distributions changed because the
+underlying information layer (history magnitudes, eval distribution,
+move ordering signals) was fundamentally different from the engine they
+were trained or calibrated on.
+
+### Learned LMR Criticality Guard
+
+**Status:** Disabled (gated to `false`). Model code preserved in
+`src/search/pruning/lmr.rs`. See `criticality_score()` and
+`legacy_criticality_score()`.
+
+**Branch:** `feature/lmr-criticality-v1` (to be created from this baseline)
+
+**Original idea:** A logistic regression model trained on shadow-only
+counterfactual probes predicts whether a reduced quiet move would have
+beaten alpha at full depth. Moves scoring above the P97 threshold get
+one ply of reduction protection (~3% of reduced moves). Trained on a
+200-game self-play dataset from the pre-Layer-1 engine.
+
+**Architecture:**
+- 27 features: root_depth, ply, depth, move_index, base_reduction,
+  final_reduction, new_depth, history_score, static_eval,
+  has_prev_static_eval, prev_static_eval, static_eval_delta, alpha,
+  beta, is_pv, is_cut_node, improving, is_killer, is_counter,
+  tt_move_agreement, side_to_move_black, piece_pawn, piece_knight,
+  piece_bishop, piece_rook, piece_queen, piece_king
+- Coefficients loaded from `criticality.coeffs` at startup (with
+  hardcoded fallback: `CRITICALITY_P97_LOGIT = -4.55`,
+  `CRITICALITY_INTERCEPT = -4.53`)
+- P97 threshold selected from validation-score percentiles
+- Training pipeline: `tools/train.py` with shadow-only
+  counterfactual probes
+
+**Why it was moved:**
+
+1. **Covariate shift from Layer 1.** Correction history changes the
+   `static_eval` distribution. The Obsidian bonus formula changes the
+   `history_score` distribution. Continuation history changes move
+   ordering. The model's 27 features depend on distributions from the
+   pre-Layer-1 engine.
+
+2. **Node explosion evidence.** With full Layer 1, disabling the
+   criticality guard reduced the d8 node inflation from 1.48× to
+   1.11× vs Layer 0 — roughly half the explosion came from the
+   miscalibrated model making wrong protection decisions.
+
+3. **The model wasn't wrong; the engine changed.** This is a normal
+   phenomenon in ML systems. The model learned valid patterns for the
+   engine it was trained on. After the information layer was rebuilt,
+   those patterns no longer hold.
+
+**Revisit plan:** After Layers 0-6 are complete and SPRT-validated,
+retrain the model on data from the new baseline. The feature set may
+need revision (e.g., adding correction magnitude, continuation
+confidence, history saturation as features). Compete against classical
+LMR on the completed baseline — if it wins there, the result is
+credible.
+
+### Variance-Aware Futility Pruning
+
+**Status:** Disabled (`PRUNING_Z = 0.0`, `FFP_W_SIGMA = 0.0`).
+Estimator code preserved in `src/search/pruning/variance.rs`
+(`sigma()` and related functions).
+
+**Branch:** `feature/variance-ffp-v2` (to be created from this baseline)
+
+**Original idea:** Replace fixed-depth futility margins with margins
+derived from a diffusive model of eval evolution:
+
+```
+M(d, σ) = μ·d + z·σ·√d
+```
+
+Where μ is expected per-ply improvement, z is a confidence z-score, and
+σ(pos) estimates position-dependent per-ply eval-change std dev from
+board features (mobile pieces, open files, game phase) via O(1) bit
+operations.
+
+**Evidence collected:**
+- **Mechanistic:** eval volatility varies measurably (~1.5× ratio
+  between calm and volatile positions)
+- **Calibration:** σ predicts pruning risk, not just volatility
+  (false-prune rate 0.7% at low σ, 2.3% at high σ)
+- **Paired A/B:** variance margin saved 1,161 more correct prunes at
+  cost of 27 false prunes (43:1 correct/wrong ratio)
+- **z-Sweep:** false-prune rate decreases monotonically 2.2% → 0.7%
+  as z increases 0.8 → 2.5; no catastrophic misses at any z
+- **Tail inspection:** all 23 failures at z=0.8 were boundary cases
+  (median miss 12 cp, max 57 cp)
+
+**Why it was moved:**
+
+1. **Covariate shift from Layer 1.** The σ estimator is calibrated
+   against eval behavior from the pre-Layer-1 engine. Correction
+   history fundamentally changes the eval distribution — the same
+   position's static_eval can differ by 30-60 cp after correction,
+   which shifts the σ distribution.
+
+2. **Interaction with classical pruning.** Variance margins interact
+   with correction-aware RFP/NMP/FFP margins. Tuning both
+   simultaneously is intractable without completing the classical
+   pipeline first.
+
+3. **The methodology is sound; the timing was wrong.** The
+   probabilistic pruning → online σ estimation → calibration →
+   paired verification → SPRT pipeline is a reusable methodology.
+   Applying it after the classical baseline stabilizes gives it the
+   best chance to demonstrate value.
+
+**Revisit plan:** After Layers 0-6 are complete and classical pruning
+margins are SPRT-tuned, re-calibrate σ(pos) against the new eval
+distribution. Test at fast time control against pure classical margins.
+The z-sweep → tail inspection → SPRT methodology documented above is
+the correct validation path.

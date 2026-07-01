@@ -186,7 +186,11 @@ pub(in crate::search) fn compute_lmr_reduction_details(
         .unwrap_or(CRITICALITY_P97_LOGIT);
 
     let cs = criticality_score(input, base_reduction, pre_protection_reduction);
-    let protected = pre_protection_reduction > 0 && cs >= threshold;
+    // Learned LMR criticality guard is disabled (moved to research branch).
+    // The model was trained on an older engine and its feature distributions
+    // shifted after Layer 1 infrastructure changes (covariate shift).
+    // See EXPERIMENTS.md § "Learned LMR Criticality Guard".
+    let protected = false; // was: pre_protection_reduction > 0 && cs >= threshold;
     if protected {
         reduction -= 1;
     }
