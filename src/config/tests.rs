@@ -22,8 +22,6 @@ pub(super) fn uci_option_names_accept_spaces_and_case() {
     assert!(options.set_uci_option("Syzygy Path", "/tmp/tb"));
     assert_eq!(options.syzygy.path, "/tmp/tb");
 
-    assert!(options.set_uci_option("Criticality Log Dir", "/tmp/criticality"));
-    assert_eq!(options.criticality.log_dir, "/tmp/criticality");
 }
 
 #[test]
@@ -39,9 +37,4 @@ pub(super) fn eval_scales_are_clamped() {
     assert!(options.set_uci_option("Syzygy Probe Limit", "99"));
     assert_eq!(options.syzygy.probe_limit, 6);
 
-    assert!(options.set_uci_option("Criticality Probe Permille", "2000"));
-    assert_eq!(options.criticality.probe_permille, 1000);
-
-    assert!(options.set_uci_option("Futility Probe Permille", "2000"));
-    assert_eq!(options.criticality.futility_probe_permille, 1000);
 }

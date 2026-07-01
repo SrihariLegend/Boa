@@ -12,10 +12,6 @@
 
 use crate::board::{Board, Zobrist};
 use crate::config::EngineOptions;
-use crate::criticality::{
-    should_probe as should_probe_criticality, CriticalityDecisionKind, CriticalityLabelSource,
-    CriticalityLogger, CriticalityRecord,
-};
 use crate::eval::{evaluate, EvalContext};
 use crate::movegen::{gen_captures, gen_moves, AttackTables, MoveList};
 use crate::syzygy::SyzygyTablebase;
@@ -27,7 +23,6 @@ mod bench;
 mod constants;
 mod context;
 mod correction;
-mod criticality;
 mod move_ordering;
 #[cfg(test)]
 mod move_ordering_tests;
@@ -54,7 +49,6 @@ pub(in crate::search) use alpha_beta::*;
 pub(in crate::search) use constants::*;
 pub(in crate::search) use context::now_ms;
 pub(in crate::search) use correction::*;
-pub(in crate::search) use criticality::*;
 pub(in crate::search) use move_ordering::*;
 pub(in crate::search) use null_move::*;
 pub(in crate::search) use pruning::*;
@@ -63,7 +57,7 @@ pub(in crate::search) use see::*;
 pub(in crate::search) use stats::*;
 pub(in crate::search) use tt_cutoff::*;
 pub(in crate::search) use types::{
-    CriticalityRecordInput, LmrInput, LmrReduction, SearchNode,
+    LmrInput, LmrReduction, SearchNode,
 };
 
 pub use bench::bench;

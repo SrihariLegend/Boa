@@ -236,11 +236,6 @@ pub(in crate::search) fn handle_beta_cutoff(
     best_score: Score,
     beta: Score,
 ) {
-    // Counterfactual probes are shadow-only: they may observe a full-depth
-    // score, but must not train move-ordering heuristics used by the real search.
-    if ctx.in_criticality_probe {
-        return;
-    }
     if is_capture {
         update_cap_history(ctx, board.side, m, board, depth);
         return;

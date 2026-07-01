@@ -65,9 +65,6 @@ pub struct SearchContext<'a> {
     pub root_color: Color,
     pub game_id: u64,
     pub search_id: u64,
-    pub criticality_logger: Option<CriticalityLogger>,
-    pub(in crate::search) in_criticality_probe: bool,
-
     // Set by the UCI input thread when "stop"/"quit" arrives mid-search.
     // Without this the engine can emit a stale bestmove into the next game
     // (cutechess then scores it as an illegal move).
@@ -155,13 +152,6 @@ impl<'a> SearchContext<'a> {
         game_id: u64,
         search_id: u64,
     ) -> Self {
-        let criticality_logger = match CriticalityLogger::open(&options.criticality.log_dir) {
-            Ok(logger) => logger,
-            Err(err) => {
-                eprintln!("info string CriticalityLogDir error: {err}");
-                None
-            }
-        };
         SearchContext {
             atk,
             z,
@@ -177,8 +167,6 @@ impl<'a> SearchContext<'a> {
             root_color: Color::White, // set by search() before iterating
             game_id,
             search_id,
-            criticality_logger,
-            in_criticality_probe: false,
             history_hashes,
             nodes: 0,
             stopped: false,

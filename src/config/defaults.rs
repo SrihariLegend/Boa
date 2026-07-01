@@ -36,23 +36,3 @@ impl Default for SyzygyOptions {
     }
 }
 
-impl Default for CriticalityOptions {
-    fn default() -> Self {
-        let log_dir = std::env::var("BOA_CRITICALITY_LOG_DIR").unwrap_or_default();
-        let probe_permille = std::env::var("BOA_CRITICALITY_PROBE_PERMILLE")
-            .ok()
-            .and_then(|value| value.parse::<u32>().ok())
-            .unwrap_or(0)
-            .clamp(0, 1000);
-        let futility_probe_permille = std::env::var("BOA_FUTILITY_PROBE_PERMILLE")
-            .ok()
-            .and_then(|value| value.parse::<u32>().ok())
-            .unwrap_or(probe_permille)
-            .clamp(0, 1000);
-        CriticalityOptions {
-            log_dir,
-            probe_permille,
-            futility_probe_permille,
-        }
-    }
-}

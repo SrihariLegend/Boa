@@ -27,8 +27,6 @@ pub(in crate::search) fn lazy_smp_search(
     let search_id = ctx.search_id;
     let mut worker_options = ctx.options.clone();
     worker_options.search.threads = 1;
-    worker_options.criticality.log_dir.clear();
-    worker_options.criticality.probe_permille = 0;
 
     std::thread::scope(|scope| {
         let mut handles = Vec::with_capacity(threads.saturating_sub(1));
@@ -207,12 +205,6 @@ pub(in crate::search) fn search_single(
                 best_move = m;
                 break;
             }
-        }
-    }
-
-    if let Some(logger) = &mut ctx.criticality_logger {
-        if let Err(err) = logger.flush() {
-            eprintln!("info string criticality log flush failed: {err}");
         }
     }
 

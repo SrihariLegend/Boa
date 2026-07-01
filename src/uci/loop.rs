@@ -60,22 +60,6 @@ pub fn run() {
                 println!("option name Contempt type spin default 0 min -100 max 100");
                 println!("option name SyzygyPath type string default <empty>");
                 println!(
-                    "option name CriticalityLogDir type string default {}",
-                    if defaults.criticality.log_dir.is_empty() {
-                        "<empty>"
-                    } else {
-                        defaults.criticality.log_dir.as_str()
-                    }
-                );
-                println!(
-                    "option name CriticalityProbePermille type spin default {} min 0 max 1000",
-                    defaults.criticality.probe_permille
-                );
-                println!(
-                    "option name FutilityProbePermille type spin default {} min 0 max 1000",
-                    defaults.criticality.futility_probe_permille
-                );
-                println!(
                     "option name SyzygyProbeDepth type spin default {} min 0 max 64",
                     defaults.syzygy.probe_depth
                 );

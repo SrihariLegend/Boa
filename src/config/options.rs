@@ -5,7 +5,6 @@ pub struct EngineOptions {
     pub eval: EvalOptions,
     pub search: SearchOptions,
     pub syzygy: SyzygyOptions,
-    pub criticality: CriticalityOptions,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -35,9 +34,3 @@ pub struct SyzygyOptions {
     pub fifty_move_rule: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct CriticalityOptions {
-    pub log_dir: String,
-    pub probe_permille: u32,
-    pub futility_probe_permille: u32,
-}

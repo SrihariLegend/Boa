@@ -1,6 +1,5 @@
 pub mod board;
 pub mod config;
-pub mod criticality;
 pub mod diagnostics;
 pub mod eval;
 pub mod movegen;
