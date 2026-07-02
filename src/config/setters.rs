@@ -12,7 +12,7 @@ impl EngineOptions {
             "evalkingsafetyscale" => set_scale(&mut self.eval.king_safety_scale, value),
             "searchsee" => set_bool(&mut self.search.see, value),
             "searchseeqsearchpruning" => set_bool(&mut self.search.see_qsearch_pruning, value),
-            "searchseecaptureordering" => set_bool(&mut self.search.see_capture_ordering, value),
+
             "searchforwardfutilitypruning" => {
                 set_bool(&mut self.search.forward_futility_pruning, value)
             }

@@ -133,32 +133,6 @@ pub struct EvalEvent {
     pub king_safety_eg: i32,
     #[cfg_attr(feature = "probes", serde(rename = "ks_cp"))]
     pub king_safety_cp: i32,
-    #[cfg_attr(feature = "probes", serde(rename = "fr"))]
-    pub freedom: i32,
-    #[cfg_attr(feature = "probes", serde(rename = "td_mg"))]
-    pub trade_down_mg: i32,
-    #[cfg_attr(feature = "probes", serde(rename = "td_eg"))]
-    pub trade_down_eg: i32,
-    #[cfg_attr(feature = "probes", serde(rename = "td_cp"))]
-    pub trade_down_cp: i32,
-    #[cfg_attr(feature = "probes", serde(rename = "ws_mg"))]
-    pub weak_squares_mg: i32,
-    #[cfg_attr(feature = "probes", serde(rename = "ws_eg"))]
-    pub weak_squares_eg: i32,
-    #[cfg_attr(feature = "probes", serde(rename = "ws_cp"))]
-    pub weak_squares_cp: i32,
-    #[cfg_attr(feature = "probes", serde(rename = "co_mg"))]
-    pub coordination_mg: i32,
-    #[cfg_attr(feature = "probes", serde(rename = "co_eg"))]
-    pub coordination_eg: i32,
-    #[cfg_attr(feature = "probes", serde(rename = "co_cp"))]
-    pub coordination_cp: i32,
-    #[cfg_attr(feature = "probes", serde(rename = "ap_mg"))]
-    pub advanced_pawns_mg: i32,
-    #[cfg_attr(feature = "probes", serde(rename = "ap_eg"))]
-    pub advanced_pawns_eg: i32,
-    #[cfg_attr(feature = "probes", serde(rename = "ap_cp"))]
-    pub advanced_pawns_cp: i32,
     #[cfg_attr(feature = "probes", serde(rename = "ws"))]
     pub white_score: i32,
     #[cfg_attr(feature = "probes", serde(rename = "ss"))]

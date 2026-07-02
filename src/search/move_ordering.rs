@@ -119,6 +119,9 @@ fn score_single_move(
     s
 }
 
+/// Score captures for move ordering. Uses MVV-LVA + capture history.
+/// SEE is NOT computed here — the QSearch pruning loop computes SEE once
+/// for the pruning decision, avoiding a redundant double evaluation.
 pub(in crate::search) fn score_captures(board: &Board, ctx: &SearchContext, list: &mut MoveList) {
     let us = board.side as usize;
     for i in 0..list.count {
@@ -138,12 +141,7 @@ pub(in crate::search) fn score_captures(board: &Board, ctx: &SearchContext, list
         };
         let to = move_to(m) as usize;
         let ch = ctx.cap_history[us][mover_pt][to][cap_pt] / CAP_HISTORY_DIVISOR;
-        let see = if ctx.options.search.see && ctx.options.search.see_capture_ordering {
-            static_exchange_eval(board, ctx.atk, m)
-        } else {
-            0
-        };
-        list.scores[i] = see * 16 + cap_val * 10 - mov_val + ch;
+        list.scores[i] = cap_val * 10 - mov_val + ch;
     }
 }
 

@@ -13,9 +13,6 @@ pub(super) fn uci_option_names_accept_spaces_and_case() {
     assert!(options.set_uci_option("Search SEE QSearch Pruning", "false"));
     assert!(!options.search.see_qsearch_pruning);
 
-    assert!(options.set_uci_option("Search SEE Capture Ordering", "false"));
-    assert!(!options.search.see_capture_ordering);
-
     assert!(options.set_uci_option("Search Forward Futility Pruning", "false"));
     assert!(!options.search.forward_futility_pruning);
 

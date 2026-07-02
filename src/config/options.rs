@@ -22,7 +22,6 @@ pub struct SearchOptions {
     pub lazy_smp: bool,
     pub see: bool,
     pub see_qsearch_pruning: bool,
-    pub see_capture_ordering: bool,
     pub forward_futility_pruning: bool,
 }
 

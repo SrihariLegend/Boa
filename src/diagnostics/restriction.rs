@@ -14,11 +14,6 @@ pub struct RestrictionFeatures {
     pub mobility_cp: i32,
     pub pawn_structure_cp: i32,
     pub king_safety_cp: i32,
-    pub freedom_cp: i32,
-    pub trade_down_cp: i32,
-    pub weak_squares_cp: i32,
-    pub coordination_cp: i32,
-    pub advanced_pawns_cp: i32,
     pub material_mg: i32,
     pub material_eg: i32,
     pub pst_mg: i32,
@@ -31,15 +26,6 @@ pub struct RestrictionFeatures {
     pub pawn_structure_eg: i32,
     pub king_safety_mg: i32,
     pub king_safety_eg: i32,
-    pub freedom: i32,
-    pub trade_down_mg: i32,
-    pub trade_down_eg: i32,
-    pub weak_squares_mg: i32,
-    pub weak_squares_eg: i32,
-    pub coordination_mg: i32,
-    pub coordination_eg: i32,
-    pub advanced_pawns_mg: i32,
-    pub advanced_pawns_eg: i32,
     pub white_pawn_breaks: u32,
     pub black_pawn_breaks: u32,
     pub liberating_breaks_white: u32,
@@ -51,13 +37,10 @@ pub struct RestrictionFeatures {
 impl RestrictionFeatures {
     pub fn csv_header() -> &'static str {
         "fen,side_to_move,static_eval_cp,white_score_cp,phase,\
-         material_cp,pst_cp,mobility_cp,pawn_structure_cp,king_safety_cp,freedom_cp,\
-         trade_down_cp,weak_squares_cp,coordination_cp,advanced_pawns_cp,\
+         material_cp,pst_cp,mobility_cp,pawn_structure_cp,king_safety_cp,\
          material_mg,material_eg,pst_mg,pst_eg,\
          mobility_white,mobility_black,mobility_mg,mobility_eg,\
-         pawn_structure_mg,pawn_structure_eg,king_safety_mg,king_safety_eg,freedom,\
-         trade_down_mg,trade_down_eg,weak_squares_mg,weak_squares_eg,\
-         coordination_mg,coordination_eg,advanced_pawns_mg,advanced_pawns_eg,\
+         pawn_structure_mg,pawn_structure_eg,king_safety_mg,king_safety_eg,\
          white_pawn_breaks,black_pawn_breaks,liberating_breaks_white,liberating_breaks_black,\
          piece_redeployment_white,piece_redeployment_black"
     }
@@ -74,11 +57,6 @@ impl RestrictionFeatures {
             self.mobility_cp.to_string(),
             self.pawn_structure_cp.to_string(),
             self.king_safety_cp.to_string(),
-            self.freedom_cp.to_string(),
-            self.trade_down_cp.to_string(),
-            self.weak_squares_cp.to_string(),
-            self.coordination_cp.to_string(),
-            self.advanced_pawns_cp.to_string(),
             self.material_mg.to_string(),
             self.material_eg.to_string(),
             self.pst_mg.to_string(),
@@ -91,15 +69,6 @@ impl RestrictionFeatures {
             self.pawn_structure_eg.to_string(),
             self.king_safety_mg.to_string(),
             self.king_safety_eg.to_string(),
-            self.freedom.to_string(),
-            self.trade_down_mg.to_string(),
-            self.trade_down_eg.to_string(),
-            self.weak_squares_mg.to_string(),
-            self.weak_squares_eg.to_string(),
-            self.coordination_mg.to_string(),
-            self.coordination_eg.to_string(),
-            self.advanced_pawns_mg.to_string(),
-            self.advanced_pawns_eg.to_string(),
             self.white_pawn_breaks.to_string(),
             self.black_pawn_breaks.to_string(),
             self.liberating_breaks_white.to_string(),
@@ -136,11 +105,6 @@ pub fn extract_restriction_features(
         mobility_cp: eval.mobility_cp,
         pawn_structure_cp: eval.pawn_structure_cp,
         king_safety_cp: eval.king_safety_cp,
-        freedom_cp: eval.freedom,
-        trade_down_cp: eval.trade_down_cp,
-        weak_squares_cp: eval.weak_squares_cp,
-        coordination_cp: eval.coordination_cp,
-        advanced_pawns_cp: eval.advanced_pawns_cp,
         material_mg: eval.material_mg,
         material_eg: eval.material_eg,
         pst_mg: eval.pst_mg,
@@ -153,15 +117,6 @@ pub fn extract_restriction_features(
         pawn_structure_eg: eval.pawn_structure_eg,
         king_safety_mg: eval.king_safety_mg,
         king_safety_eg: eval.king_safety_eg,
-        freedom: eval.freedom,
-        trade_down_mg: eval.trade_down_mg,
-        trade_down_eg: eval.trade_down_eg,
-        weak_squares_mg: eval.weak_squares_mg,
-        weak_squares_eg: eval.weak_squares_eg,
-        coordination_mg: eval.coordination_mg,
-        coordination_eg: eval.coordination_eg,
-        advanced_pawns_mg: eval.advanced_pawns_mg,
-        advanced_pawns_eg: eval.advanced_pawns_eg,
         white_pawn_breaks: white_breaks.total,
         black_pawn_breaks: black_breaks.total,
         liberating_breaks_white: white_breaks.liberating,

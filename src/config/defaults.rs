@@ -19,7 +19,6 @@ impl Default for SearchOptions {
             lazy_smp: true,
             see: true,
             see_qsearch_pruning: true,
-            see_capture_ordering: true,
             forward_futility_pruning: true,
         }
     }

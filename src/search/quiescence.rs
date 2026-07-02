@@ -97,13 +97,18 @@ pub(in crate::search) fn quiescence(
         // Delta pruning (only for captures, not for checks)
         let cap_piece = board.sq_piece[move_to(m) as usize];
         let is_capture = cap_piece != PIECE_NONE || move_flags(m) == MF_EN_PASSANT;
-        let cap_value = if cap_piece != PIECE_NONE {
+        let mut cap_value = if cap_piece != PIECE_NONE {
             piece_type(cap_piece).material_value()
         } else if move_flags(m) == MF_EN_PASSANT {
             PieceType::Pawn.material_value()
         } else {
             0
         };
+        // Promotion-captures gain the promotion piece value on top of the
+        // captured piece — the pawn is replaced by a queen/rook/bishop/knight.
+        if move_flags(m) == MF_PROMOTION {
+            cap_value += move_promo_pt(m).material_value() - PieceType::Pawn.material_value();
+        }
         if is_capture && stand_pat + cap_value + DELTA_PRUNING_MARGIN < alpha {
             delta_pruned += 1;
             continue;
