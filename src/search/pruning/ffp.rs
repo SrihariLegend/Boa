@@ -21,7 +21,6 @@ pub(in crate::search) fn should_ffp_prune(input: FfpInput) -> bool {
         depth: input.depth,
         move_index: input.move_index as u32,
         history_score: input.history_score,
-        sigma: 0,
         computed_margin: estimated_gain,
         required_gain: required_gain,
         pruned: pruned,

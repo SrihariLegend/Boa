@@ -328,8 +328,6 @@ pub struct FfpEvent {
     pub move_index: u32,
     #[cfg_attr(feature = "probes", serde(rename = "hs"))]
     pub history_score: i32,
-    #[cfg_attr(feature = "probes", serde(rename = "sg"))]
-    pub sigma: i32,
     #[cfg_attr(feature = "probes", serde(rename = "mg"))]
     pub computed_margin: i32,
     #[cfg_attr(feature = "probes", serde(rename = "rg"))]
@@ -351,8 +349,6 @@ pub struct RfpEvent {
     pub static_eval: i32,
     #[cfg_attr(feature = "probes", serde(rename = "b"))]
     pub beta: i32,
-    #[cfg_attr(feature = "probes", serde(rename = "sg"))]
-    pub sigma: i32,
     #[cfg_attr(feature = "probes", serde(rename = "mg"))]
     pub computed_margin: i32,
     #[cfg_attr(feature = "probes", serde(rename = "pr"))]
@@ -380,10 +376,6 @@ pub struct LmrEvent {
     pub actual_reduction: i32,
     #[cfg_attr(feature = "probes", serde(rename = "nd"))]
     pub new_depth: i32,
-    #[cfg_attr(feature = "probes", serde(rename = "cs"))]
-    pub criticality_score: f64,
-    #[cfg_attr(feature = "probes", serde(rename = "cp"))]
-    pub protected_by_criticality: bool,
     #[cfg_attr(feature = "probes", serde(rename = "ip"))]
     pub improving: bool,
     #[cfg_attr(feature = "probes", serde(rename = "ki"))]
@@ -420,30 +412,7 @@ pub struct NullMoveEvent {
 }
 
 // ============================================================
-// 13. Variance — typ:"va" — σ(pos) computation details
-// ============================================================
-#[cfg_attr(feature = "probes", derive(Serialize))]
-pub struct VarianceEvent {
-    #[cfg_attr(feature = "probes", serde(rename = "sg"))]
-    pub sigma: i32,
-    #[cfg_attr(feature = "probes", serde(rename = "fm"))]
-    pub f_mobility: f64,
-    #[cfg_attr(feature = "probes", serde(rename = "fo"))]
-    pub f_open: f64,
-    #[cfg_attr(feature = "probes", serde(rename = "fp"))]
-    pub f_phase: f64,
-    #[cfg_attr(feature = "probes", serde(rename = "mo"))]
-    pub mobile_piece_count: i32,
-    #[cfg_attr(feature = "probes", serde(rename = "of"))]
-    pub open_file_count: i32,
-    #[cfg_attr(feature = "probes", serde(rename = "np"))]
-    pub non_pawn_material: i32,
-    #[cfg_attr(feature = "probes", serde(rename = "ph"))]
-    pub phase: i32,
-}
-
-// ============================================================
-// 14. SEE — typ:"se"
+// 13. SEE — typ:"se"
 // ============================================================
 #[cfg_attr(feature = "probes", derive(Serialize))]
 pub struct SeeEvent {
@@ -741,8 +710,6 @@ pub enum ProbeEvent {
     Lmr(LmrEvent),
     #[cfg_attr(feature = "probes", serde(rename = "nm"))]
     NullMove(NullMoveEvent),
-    #[cfg_attr(feature = "probes", serde(rename = "va"))]
-    Variance(VarianceEvent),
     #[cfg_attr(feature = "probes", serde(rename = "se"))]
     See(SeeEvent),
     #[cfg_attr(feature = "probes", serde(rename = "qs"))]

@@ -30,7 +30,6 @@ pub(in crate::search) fn rfp_prune_score(
         depth: depth,
         static_eval: static_eval,
         beta: beta,
-        sigma: 0,
         computed_margin: margin,
         pruned: pruned,
     });

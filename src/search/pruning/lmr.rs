@@ -63,8 +63,6 @@ pub(in crate::search) fn compute_lmr_reduction_details(
         base_reduction: base_reduction,
         actual_reduction: final_reduction,
         new_depth: new_depth,
-        criticality_score: 0.0,
-        protected_by_criticality: false,
         improving: input.improving,
         is_killer: input.is_killer,
         is_counter: input.is_counter,

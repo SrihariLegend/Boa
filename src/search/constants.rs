@@ -84,7 +84,6 @@ pub(in crate::search) const LMR_HISTORY_CLAMP: i32 = HISTORY_GRAVITY;
 pub(in crate::search) const LMR_HISTORY_NORMALIZER: i32 = 4_096;
 
 /// LMR: extra reduction when the static eval is improving for side to move.
-/// Disabled for the learned-criticality baseline; improving remains logged as a feature.
 pub(in crate::search) const LMR_IMPROVING_BONUS: i32 = 0;
 
 /// LMR: whether to scale reductions by PV/cut-node type.
