@@ -87,6 +87,7 @@ pub struct FfpInput {
     pub move_index: usize,
     pub is_cut_node: bool,
     pub history_score: i32,
+    pub corr_val: i32,
 }
 
 // ---- Search context ----

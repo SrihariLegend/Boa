@@ -172,18 +172,16 @@ pub(in crate::search) fn alpha_beta(
     } else {
         evaluate(board, &EvalContext { atk: ctx.atk, options: &ctx.options })
     };
-    // Compute and cache non-pawn hashes once per node (used by both correction
-    // read and correction update, avoiding double iteration over piece bitboards).
-    // Store on the stack so compute_correction / update_correction can reuse them.
+    // Compute and cache non-pawn hashes for correction history.
     if ply < MAX_PLY {
         let np_hash_w = non_pawn_hash(board, ctx.z, Color::White);
         let np_hash_b = non_pawn_hash(board, ctx.z, Color::Black);
         ctx.stack[ply].non_pawn_hashes = Some((np_hash_w, np_hash_b));
     }
 
-    // Apply correction history to debias static_eval for pruning heuristics.
-    // The raw static_eval is stored in the stack for correction update after
-    // search returns. The corrected eval feeds into RFP, NMP, FFP, and LMR margins.
+    // Compute correction value — used to widen pruning margins when eval
+    // is unreliable for this position type. The raw static_eval feeds
+    // pruning; |corr|/512 is added to each margin as an uncertainty term.
     let corr_val = compute_correction(ctx, board, ply);
     let corrected_eval = static_eval + corr_val / 512;
     if ply < MAX_PLY {
@@ -197,13 +195,13 @@ pub(in crate::search) fn alpha_beta(
 
     if !in_check && !is_pv {
         // Reverse futility pruning (static null move)
-        if let Some(rfp_score) = rfp_prune_score(corrected_eval, beta, depth) {
+        if let Some(rfp_score) = rfp_prune_score(static_eval, beta, depth, corr_val) {
             ctx.stats.rfp_cutoffs += 1;
             ctx.history_hashes.pop();
             return rfp_score;
         }
 
-        if let Some(null_score) = try_null_move(board, ctx, beta, depth, ply, corrected_eval) {
+        if let Some(null_score) = try_null_move(board, ctx, beta, depth, ply, static_eval, corr_val) {
             ctx.history_hashes.pop();
             return null_score;
         }
@@ -314,7 +312,10 @@ pub(in crate::search) fn alpha_beta(
 
         let gives_check = board.is_in_check(board.side);
         let is_quiet = !is_capture && !is_promo && !gives_check;
+        // LMR excludes checks (tactically volatile), but history updates include
+        // them — a failed check is still evidence the move was bad here.
         let is_lmr_quiet = is_quiet;
+        let is_history_quiet = !is_capture && !is_promo;
 
         // ---- Forward futility pruning (quiet move frontier) ----
         if is_quiet && ffp_see.is_some_and(|see| see <= 0) {
@@ -322,11 +323,12 @@ pub(in crate::search) fn alpha_beta(
             let quiet_move_index = (quiet_moves_searched + 1).min(FFP_MAX_RANK);
             let ffp_input = FfpInput {
                 depth,
-                static_eval: corrected_eval,
+                static_eval,
                 alpha,
                 is_cut_node,
                 move_index: quiet_move_index,
                 history_score,
+                corr_val,
             };
             if should_ffp_prune(ffp_input) {
                 ctx.stats.ffp_prunes += 1;
@@ -440,8 +442,17 @@ pub(in crate::search) fn alpha_beta(
             return 0;
         }
 
-        if is_lmr_quiet && score <= pre_alpha {
+        if is_history_quiet && score <= pre_alpha {
             add_history_score(ctx, side_to_move, moving_piece, m, history_malus(depth));
+            // Apply malus to pawn history for failed quiet moves
+            {
+                let pawn_idx = (board.pawn_hash & 1023) as usize;
+                let pt = piece_type(moving_piece) as usize;
+                let to = move_to(m) as usize;
+                let old = ctx.pawn_history[pawn_idx][pt][to];
+                let malus = history_malus(depth);
+                ctx.pawn_history[pawn_idx][pt][to] = old + malus - (old * malus.abs()) / HISTORY_GRAVITY;
+            }
             // Apply malus to continuation history for failed quiet moves
             if ply > 0 && ply < MAX_PLY {
                 if let Some((pp, pto)) = ctx.stack[ply - 1].cont_entry {
@@ -529,24 +540,11 @@ pub(in crate::search) fn alpha_beta(
     ctx.history_hashes.pop();
 
     // Update correction history using the search result vs raw eval.
-    // Uses raw_eval (the uncorrected static evaluation), NOT corrected_eval.
-    // The correction learns the TOTAL eval error, not the residual.
     let raw_eval_for_correction = ctx.stack[ply]
         .static_eval
         .unwrap_or(static_eval);
     update_correction(ctx, board, depth, best_score, raw_eval_for_correction, ply);
     ctx.stats.corr_update_count += 1;
-
-    sample_probe!(256, CorrectionHistory, CorrectionHistoryEvent {
-        correction_value: ctx.stack[ply].correction_value.unwrap_or(0),
-        raw_eval: raw_eval_for_correction,
-        corrected_eval: corrected_eval,
-        diff: best_score - raw_eval_for_correction,
-        pawn_corr: 0,
-        nonpawn_corr: 0,
-        cont_corr: 0,
-        ply: ply as u32,
-    });
 
     // TT store (mate scores converted to node-relative distance).
     ctx.tt.store(

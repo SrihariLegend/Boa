@@ -13,12 +13,27 @@ pub(in crate::search) const ASPIRATION_MIN_DEPTH: u32 = 4;
 /// -INF/+INF re-search. Prevents pathological re-search loops (SF caps at ~4).
 pub(in crate::search) const ASPIRATION_MAX_EXPANSIONS: u32 = 4;
 
+// ---- Correction history weights for pruning margins ----
+// When correction is large, the eval is unreliable for this position type.
+// Widen pruning margins by |corr| * weight / 512 to be safer.
+// Override with env vars: BOA_CORR_W_RFP, BOA_CORR_W_NMP, BOA_CORR_W_FFP.
+pub(in crate::search) fn corr_w_rfp() -> i32 {
+    std::env::var("BOA_CORR_W_RFP").ok().and_then(|v| v.parse().ok()).unwrap_or(2)
+}
+pub(in crate::search) fn corr_w_nmp() -> i32 {
+    std::env::var("BOA_CORR_W_NMP").ok().and_then(|v| v.parse().ok()).unwrap_or(1)
+}
+pub(in crate::search) fn corr_w_ffp() -> i32 {
+    std::env::var("BOA_CORR_W_FFP").ok().and_then(|v| v.parse().ok()).unwrap_or(1)
+}
+
 // ---- RFP (Reverse Futility Pruning) ----
 
 /// RFP: maximum depth at which to apply. Standard: 5-8 (CPW).
 pub(in crate::search) const RFP_MAX_DEPTH: i32 = 5;
 
-/// RFP: margin per depth ply (centipawns). M = RFP_MARGIN_PER_DEPTH * d.
+/// RFP: margin per depth ply (centipawns). M = RFP_MARGIN_PER_DEPTH * d
+///     + CORR_W_RFP * |correction| / 512.
 /// Standard range: 50-100 (CPW). [NEEDS SPRT]
 pub(in crate::search) const RFP_MARGIN_PER_DEPTH: i32 = 50;
 

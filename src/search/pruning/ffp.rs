@@ -7,8 +7,10 @@ use crate::sample_probe;
 ///   base_gain = RFP_MARGIN_PER_DEPTH × depth
 ///   + w_idx × u_idx          // move-ordering position quality
 ///   + w_hist × u_hist        // history-heuristic quality
+///   + CORR_W_FFP × |corr| / 512  // correction uncertainty
 ///
-/// If estimated_gain + buffer < required_gain, the move is unlikely to matter → prune.
+/// When correction is large (eval unreliable for this position type),
+/// the margin widens → less likely to prune → safer.
 pub(in crate::search) fn should_ffp_prune(input: FfpInput) -> bool {
     let estimated_gain = ffp_margin(input);
     let required_gain = input.alpha - input.static_eval;
@@ -19,6 +21,7 @@ pub(in crate::search) fn should_ffp_prune(input: FfpInput) -> bool {
         depth: input.depth,
         move_index: input.move_index as u32,
         history_score: input.history_score,
+        sigma: 0,
         computed_margin: estimated_gain,
         required_gain: required_gain,
         pruned: pruned,
@@ -44,5 +47,7 @@ pub fn ffp_margin(input: FfpInput) -> i32 {
         1.0
     };
 
-    (base_gain as f64 + search_uncertainty * depth_frac).round() as i32
+    let corr_term = (corr_w_ffp() * input.corr_val.abs()) / 512;
+
+    (base_gain as f64 + search_uncertainty * depth_frac).round() as i32 + corr_term
 }

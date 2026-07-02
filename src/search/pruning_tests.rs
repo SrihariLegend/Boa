@@ -58,6 +58,7 @@ pub(in crate::search) fn ffp_margin_uses_history_and_move_index() {
             move_index: 1,
             is_cut_node: false,
             history_score: 0,
+            corr_val: 0,
         }),
         RFP_MARGIN_PER_DEPTH
     );
@@ -69,6 +70,7 @@ pub(in crate::search) fn ffp_margin_uses_history_and_move_index() {
             move_index: FFP_MAX_RANK,
             is_cut_node: true,
             history_score: FFP_HISTORY_NORMALIZER,
+            corr_val: 0,
         }),
         RFP_MARGIN_PER_DEPTH
     );
@@ -80,6 +82,7 @@ pub(in crate::search) fn ffp_margin_uses_history_and_move_index() {
         move_index: 1,
         is_cut_node: false,
         history_score: 0,
+            corr_val: 0,
     });
     let late_all = ffp_margin(FfpInput {
         depth: FFP_MAX_DEPTH,
@@ -88,6 +91,7 @@ pub(in crate::search) fn ffp_margin_uses_history_and_move_index() {
         move_index: FFP_MAX_RANK,
         is_cut_node: false,
         history_score: 0,
+            corr_val: 0,
     });
     assert!(early_all > late_all, "early move should have higher margin");
 
@@ -98,6 +102,7 @@ pub(in crate::search) fn ffp_margin_uses_history_and_move_index() {
         move_index: 10,
         is_cut_node: false,
         history_score: 0,
+            corr_val: 0,
     });
     let good_hist = ffp_margin(FfpInput {
         depth: FFP_MAX_DEPTH,
@@ -106,6 +111,7 @@ pub(in crate::search) fn ffp_margin_uses_history_and_move_index() {
         move_index: 10,
         is_cut_node: false,
         history_score: FFP_HISTORY_NORMALIZER,
+        corr_val: 0,
     });
     assert!(good_hist > neutral, "good history should increase margin");
 }
@@ -119,6 +125,7 @@ pub(in crate::search) fn ffp_prunes_only_beyond_safety_buffer() {
         move_index: 10,
         is_cut_node: false,
         history_score: 0,
+            corr_val: 0,
     });
 
     assert!(should_ffp_prune(FfpInput {
@@ -128,6 +135,7 @@ pub(in crate::search) fn ffp_prunes_only_beyond_safety_buffer() {
         move_index: 10,
         is_cut_node: false,
         history_score: 0,
+            corr_val: 0,
     }));
 
     assert!(!should_ffp_prune(FfpInput {
@@ -137,6 +145,7 @@ pub(in crate::search) fn ffp_prunes_only_beyond_safety_buffer() {
         move_index: 10,
         is_cut_node: false,
         history_score: 0,
+            corr_val: 0,
     }));
 }
 
@@ -152,7 +161,7 @@ pub(in crate::search) fn rfp_margin_linear_with_depth() {
 #[test]
 pub(in crate::search) fn rfp_prunes_when_eval_well_above_beta() {
     // At depth 3, margin = 150. eval=200, beta=0: 200-150=50 >= 0 → prune
-    assert!(rfp_prune_score(200, 0, 3).is_some());
+    assert!(rfp_prune_score(200, 0, 3, 0).is_some());
     // At depth 3, margin = 150. eval=100, beta=0: 100-150=-50 < 0 → don't prune
-    assert!(rfp_prune_score(100, 0, 3).is_none());
+    assert!(rfp_prune_score(100, 0, 3, 0).is_none());
 }

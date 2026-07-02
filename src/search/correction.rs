@@ -11,8 +11,7 @@ const CORRHIST_LIMIT: i32 = 1024;
 /// correction_value / CORRHIST_DIVISOR is the actual centipawn adjustment.
 const CORRHIST_DIVISOR: i32 = 512;
 
-/// Gravity constant for correction history updates (separate from HISTORY_GRAVITY
-/// because correction values are in a different range).
+/// Gravity constant for correction history updates.
 const CORRHIST_GRAVITY: i32 = 1024;
 
 /// Number of pawn correction buckets.
@@ -24,12 +23,12 @@ const NONPAWN_CORR_SIZE: usize = 16384;
 /// Continuation correction dimension (piece*64 + to → max 6*64 = 384).
 const CONT_CORR_SIZE: usize = 384;
 
-/// Correction weights — starting values from top engine analysis.
-/// w1 ≈ 30-53 (pawn), w2 ≈ 35-65 (non-pawn), w3 ≈ 27-76 (continuation).
-/// Start conservative and tune via SPRT/texel.
-const CORR_W1: i32 = 30;
-const CORR_W2: i32 = 35;
-const CORR_W3: i32 = 27;
+/// Correction weights — reduced 10× from initial plan values.
+/// Original values (30/35/27) produced average corrections of 68 cp,
+/// flipping 40% of RFP decisions and causing -69 Elo regression.
+const CORR_W1: i32 = 3;
+const CORR_W2: i32 = 3;
+const CORR_W3: i32 = 3;
 
 // ---- Non-pawn hash computation ----
 
@@ -103,10 +102,10 @@ pub(in crate::search) fn compute_correction(
     if ply >= 4 {
         if let Some(prev4) = ctx.stack[ply - 4].cont_entry {
             let cont_idx = prev4.0 * 64 + prev4.1;
-            if let Some(prev1) = ctx.stack[ply - 1].cont_entry {
-                let cont1_idx = prev1.0 * 64 + prev1.1;
-                if cont_idx < CONT_CORR_SIZE && cont1_idx < CONT_CORR_SIZE {
-                    corr += CORR_W3 * ctx.cont_corr[stm][cont1_idx][cont_idx];
+            if let Some(prev2) = ctx.stack[ply - 2].cont_entry {
+                let cont2_idx = prev2.0 * 64 + prev2.1;
+                if cont_idx < CONT_CORR_SIZE && cont2_idx < CONT_CORR_SIZE {
+                    corr += CORR_W3 * ctx.cont_corr[stm][cont_idx][cont2_idx];
                 }
             }
         }
@@ -145,23 +144,15 @@ pub(in crate::search) fn update_correction(
     raw_eval: Score,
     ply: usize,
 ) {
-    // Only update at depth ≥ 4. Shallow-depth search results (d ≤ 3) are
-    // dominated by tactical noise and would poison the correction tables.
-    // With ~50x more shallow nodes than deep nodes, the volume of low-quality
-    // updates overwhelms the deep, reliable ones.
-    if depth < 4 {
-        return;
+    let diff = best_score - raw_eval;
+    if diff.abs() < 5 {
+        return; // negligible error, skip update to avoid noise
     }
 
     // Skip mate scores — they would inject massive spikes into the correction
     // tables for position types that share hash buckets with unrelated positions.
     if is_mate_score(best_score) || is_mate_score(raw_eval) {
         return;
-    }
-
-    let diff = best_score - raw_eval;
-    if diff.abs() < 5 {
-        return; // negligible error, skip update to avoid noise
     }
 
     let bonus = (diff * depth / 4).clamp(-CORRHIST_LIMIT / 4, CORRHIST_LIMIT / 4);
@@ -202,7 +193,7 @@ pub(in crate::search) fn update_correction(
             old + bonus - (old * bonus.abs()) / CORRHIST_GRAVITY;
     }
 
-    // Continuation correction: (prev1, prev2) and (prev1, prev4) pairs
+    // Continuation correction: (prev1, prev2) pair
     if ply >= 2 {
         if let (Some(prev1), Some(prev2)) = (
             ctx.stack[ply - 1].cont_entry,
@@ -214,19 +205,6 @@ pub(in crate::search) fn update_correction(
                 let old = ctx.cont_corr[stm][cont_idx][cont2_idx];
                 ctx.cont_corr[stm][cont_idx][cont2_idx] =
                     old + bonus - (old * bonus.abs()) / CORRHIST_GRAVITY;
-            }
-        }
-    }
-    if ply >= 4 {
-        if let Some(prev4) = ctx.stack[ply - 4].cont_entry {
-            let cont_idx = prev4.0 * 64 + prev4.1;
-            if let Some(prev1) = ctx.stack[ply - 1].cont_entry {
-                let cont1_idx = prev1.0 * 64 + prev1.1;
-                if cont1_idx < CONT_CORR_SIZE && cont_idx < CONT_CORR_SIZE {
-                    let old = ctx.cont_corr[stm][cont1_idx][cont_idx];
-                    ctx.cont_corr[stm][cont1_idx][cont_idx] =
-                        old + bonus - (old * bonus.abs()) / CORRHIST_GRAVITY;
-                }
             }
         }
     }

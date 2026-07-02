@@ -27,11 +27,12 @@ fn new_pawn_history_table() -> Box<[[[i32; 64]; 6]; 1024]> {
     let layout = Layout::new::<[[[i32; 64]; 6]; 1024]>();
     let ptr = unsafe { alloc(layout) as *mut [[[i32; 64]; 6]; 1024] };
     assert!(!ptr.is_null(), "pawn history table alloc failed");
-    // Initialize to -5: bias against unproven moves.
+    // Initialize to 0: pawn structure provides hard context that makes the
+    // zero-meaningful case rare — the table key is inherently informative.
     unsafe {
         let p = ptr as *mut i32;
         for i in 0..(1024 * 6 * 64) {
-            p.add(i).write(-5i32);
+            p.add(i).write(0i32);
         }
     }
     unsafe { Box::from_raw(ptr) }
@@ -128,8 +129,6 @@ pub struct PlyInfo {
     /// Used by continuation history — the child reads this from `stack[ply-1]`
     /// to get the previous move's piece and destination.
     pub cont_entry: Option<(usize, usize)>,
-    /// cont_entry from ply-2 (grandparent's move). Used by continuation history 2-ply.
-    pub cont_entry2: Option<(usize, usize)>,
     /// Correction value computed at this ply (for probe diagnostics).
     pub correction_value: Option<i32>,
     /// Cached non-pawn zobrist hashes for this node (White, Black).
