@@ -1,5 +1,5 @@
 use super::*;
-use crate::probe;
+use crate::{probe, sample_probe};
 
 pub(in crate::search) fn alpha_beta(
     board: &mut Board,
@@ -172,25 +172,36 @@ pub(in crate::search) fn alpha_beta(
     } else {
         evaluate(board, &EvalContext { atk: ctx.atk, options: &ctx.options })
     };
+    // Compute and cache non-pawn hashes for correction history.
+    if ply < MAX_PLY {
+        let np_hash_w = non_pawn_hash(board, ctx.z, Color::White);
+        let np_hash_b = non_pawn_hash(board, ctx.z, Color::Black);
+        ctx.stack[ply].non_pawn_hashes = Some((np_hash_w, np_hash_b));
+    }
+
+    // Compute correction value — used to widen pruning margins when eval
+    // is unreliable for this position type. The raw static_eval feeds
+    // pruning; |corr|/512 is added to each margin as an uncertainty term.
+    let corr_val = compute_correction(ctx, board, ply);
+    let corrected_eval = static_eval + corr_val / 512;
+    if ply < MAX_PLY {
+        ctx.stack[ply].correction_value = Some(corr_val);
+    }
     let improving = is_improving(ctx, static_eval, ply);
     if ply < MAX_PLY {
         ctx.stack[ply].static_eval = Some(static_eval);
     }
     // ---- Pruning heuristics (skip in check and PV nodes) ----
 
-    // Compute position variance σ once per node for variance-aware pruning.
-    // This is O(1) bit operations — no movegen or search cost.
-    let sigma_pos = sigma(board);
-
     if !in_check && !is_pv {
         // Reverse futility pruning (static null move)
-        if let Some(rfp_score) = rfp_prune_score(static_eval, beta, depth, sigma_pos) {
+        if let Some(rfp_score) = rfp_prune_score(static_eval, beta, depth, corr_val) {
             ctx.stats.rfp_cutoffs += 1;
             ctx.history_hashes.pop();
             return rfp_score;
         }
 
-        if let Some(null_score) = try_null_move(board, ctx, beta, depth, ply, static_eval) {
+        if let Some(null_score) = try_null_move(board, ctx, beta, depth, ply, static_eval, corr_val) {
             ctx.history_hashes.pop();
             return null_score;
         }
@@ -224,7 +235,6 @@ pub(in crate::search) fn alpha_beta(
     let mut moves_searched = 0;
     let mut quiet_moves_searched = 0;
     let mut legal_moves = 0;
-    let mut ffp_pruned_any = false;
 
     for i in 0..list.count {
         list.pick_best(i);
@@ -261,7 +271,6 @@ pub(in crate::search) fn alpha_beta(
         let is_killer = ply < 128 && (m == ctx.killers[ply][0] || m == ctx.killers[ply][1]);
         let is_counter = m == counter_move;
         let ffp_see = if ctx.options.search.forward_futility_pruning
-            && !ctx.in_criticality_probe
             && !is_pv
             && (1..=FFP_MAX_DEPTH).contains(&depth)
             && !in_check
@@ -286,9 +295,27 @@ pub(in crate::search) fn alpha_beta(
         }
         legal_moves += 1;
 
+        // Set continuation history entry for the child to read (ply+1 reads stack[ply]).
+        // Quiet moves propagate their piece+to to the child; captures and promotions
+        // must clear the entry so the child doesn't see a stale value from a prior
+        // sibling branch.
+        if ply < MAX_PLY {
+            if moving_piece != PIECE_NONE && !is_capture && !is_promo {
+                ctx.stack[ply].cont_entry = Some((
+                    piece_type(moving_piece) as usize,
+                    to as usize,
+                ));
+            } else {
+                ctx.stack[ply].cont_entry = None;
+            }
+        }
+
         let gives_check = board.is_in_check(board.side);
         let is_quiet = !is_capture && !is_promo && !gives_check;
+        // LMR excludes checks (tactically volatile), but history updates include
+        // them — a failed check is still evidence the move was bad here.
         let is_lmr_quiet = is_quiet;
+        let is_history_quiet = !is_capture && !is_promo;
 
         // ---- Forward futility pruning (quiet move frontier) ----
         if is_quiet && ffp_see.is_some_and(|see| see <= 0) {
@@ -301,71 +328,10 @@ pub(in crate::search) fn alpha_beta(
                 is_cut_node,
                 move_index: quiet_move_index,
                 history_score,
-                sigma: sigma_pos,
+                corr_val,
             };
             if should_ffp_prune(ffp_input) {
                 ctx.stats.ffp_prunes += 1;
-                ffp_pruned_any = true;
-                if should_run_futility_probe(ctx, node_hash, m, depth, ply) {
-                    let mut full_pv = Vec::new();
-                    let was_in_probe = ctx.in_criticality_probe;
-                    ctx.in_criticality_probe = true;
-                    let full_score = -alpha_beta(
-                        board,
-                        ctx,
-                        SearchNode {
-                            alpha: -beta,
-                            beta: -alpha,
-                            depth: depth - 1,
-                            ply: ply + 1,
-                            is_pv: false,
-                        },
-                        &mut full_pv,
-                    );
-                    ctx.in_criticality_probe = was_in_probe;
-                    if !ctx.stopped {
-                        let margin = ffp_margin(ffp_input);
-                        write_criticality_record(
-                            ctx,
-                            &CriticalityRecord {
-                                decision_kind: CriticalityDecisionKind::Futility,
-                                pid: std::process::id(),
-                                game_id: ctx.game_id,
-                                search_id: ctx.search_id,
-                                root_depth: ctx.root_depth,
-                                ply,
-                                node_hash,
-                                side_to_move,
-                                m,
-                                from,
-                                to,
-                                piece: moving_piece,
-                                depth,
-                                move_index: quiet_move_index,
-                                base_reduction: 0,
-                                final_reduction: 0,
-                                new_depth: depth - 1,
-                                history_score,
-                                static_eval,
-                                prev_static_eval,
-                                alpha,
-                                beta,
-                                futility_margin: Some(margin),
-                                static_alpha_margin: Some(alpha - static_eval),
-                                is_pv,
-                                is_cut_node,
-                                improving,
-                                is_killer,
-                                is_counter,
-                                tt_move_agreement: m == tt_move,
-                                label_source: CriticalityLabelSource::CounterfactualProbe,
-                                reduced_score: Some(alpha),
-                                full_score: Some(full_score),
-                                sigma: Some(sigma_pos),
-                            },
-                        );
-                    }
-                }
                 board.unmake_move(m, &undo, ctx.z);
                 continue;
             }
@@ -410,42 +376,9 @@ pub(in crate::search) fn alpha_beta(
             depth - 1
         };
         let pre_alpha = alpha;
-        let pre_beta = beta;
-        let mut criticality_record = build_criticality_record(
-            ctx,
-            CriticalityRecordInput {
-                enabled: reduction > 0 && !ctx.in_criticality_probe,
-                node_hash,
-                side_to_move,
-                m,
-                ply,
-                from,
-                to,
-                moving_piece,
-                depth,
-                move_index: moves_searched + 1,
-                base_reduction: lmr.base_reduction,
-                final_reduction: reduction,
-                new_depth,
-                history_score,
-                static_eval,
-                prev_static_eval,
-                alpha: pre_alpha,
-                beta: pre_beta,
-                is_pv,
-                is_cut_node,
-                improving,
-                is_killer,
-                is_counter,
-                tt_move_agreement: m == tt_move,
-                sigma: Some(sigma_pos),
-            },
-        );
 
         // Record the move being searched BEFORE recursing — children read
-        // stack[ply].current_move for the counter-move heuristic. (Previously
-        // set after the search returned, so children always saw the previous
-        // sibling's move and the counter table learned garbage.)
+        // stack[ply].current_move for the counter-move heuristic.
         if ply < 128 {
             ctx.stack[ply].current_move = m;
         }
@@ -477,9 +410,6 @@ pub(in crate::search) fn alpha_beta(
                 },
                 &mut child_pv,
             );
-            if let Some(record) = &mut criticality_record {
-                record.reduced_score = Some(s);
-            }
             if !ctx.stopped && s > alpha && (s < beta || reduction > 0) {
                 if reduction > 0 {
                     ctx.stats.lmr_re_searches += 1;
@@ -497,48 +427,9 @@ pub(in crate::search) fn alpha_beta(
                     },
                     &mut child_pv,
                 );
-                if let Some(record) = &mut criticality_record {
-                    record.label_source = CriticalityLabelSource::ObservedResearch;
-                    record.full_score = Some(s);
-                }
-            } else if should_run_criticality_probe(
-                ctx, node_hash, m, depth, ply, reduction, s, pre_alpha,
-            ) {
-                // Shadow-only counterfactual: record the full-depth score, but
-                // keep the reduced score/PV as the actual search result.
-                let reduced_child_pv = child_pv.clone();
-                child_pv.clear();
-                let was_in_probe = ctx.in_criticality_probe;
-                ctx.in_criticality_probe = true;
-                let full_score = -alpha_beta(
-                    board,
-                    ctx,
-                    SearchNode {
-                        alpha: -beta,
-                        beta: -alpha,
-                        depth: depth - 1,
-                        ply: ply + 1,
-                        is_pv,
-                    },
-                    &mut child_pv,
-                );
-                ctx.in_criticality_probe = was_in_probe;
-                child_pv = reduced_child_pv;
-                if !ctx.stopped {
-                    if let Some(record) = &mut criticality_record {
-                        record.label_source = CriticalityLabelSource::CounterfactualProbe;
-                        record.full_score = Some(full_score);
-                    }
-                }
             }
             s
         };
-
-        if !ctx.stopped {
-            if let Some(record) = &criticality_record {
-                write_criticality_record(ctx, record);
-            }
-        }
 
         board.unmake_move(m, &undo, ctx.z);
         moves_searched += 1;
@@ -551,8 +442,57 @@ pub(in crate::search) fn alpha_beta(
             return 0;
         }
 
-        if !ctx.in_criticality_probe && is_lmr_quiet && score <= pre_alpha {
+        if is_history_quiet && score <= pre_alpha {
             add_history_score(ctx, side_to_move, moving_piece, m, history_malus(depth));
+            // Apply malus to pawn history for failed quiet moves
+            {
+                let pawn_idx = (board.pawn_hash & 1023) as usize;
+                let pt = piece_type(moving_piece) as usize;
+                let to = move_to(m) as usize;
+                let old = ctx.pawn_history[pawn_idx][pt][to];
+                let malus = history_malus(depth);
+                ctx.pawn_history[pawn_idx][pt][to] = old + malus - (old * malus.abs()) / HISTORY_GRAVITY;
+            }
+            // Apply malus to continuation history for failed quiet moves
+            if ply > 0 && ply < MAX_PLY {
+                if let Some((pp, pto)) = ctx.stack[ply - 1].cont_entry {
+                    let pt = piece_type(moving_piece) as usize;
+                    let to_idx = move_to(m) as usize;
+                    let old = ctx.cont1[pp][pto][pt][to_idx];
+                    let malus = history_malus(depth);
+                    ctx.cont1[pp][pto][pt][to_idx] = old + malus - (old * malus.abs()) / HISTORY_GRAVITY;
+                }
+            }
+            // Cont2 malus with half magnitude
+            if ply >= 2 && ply < MAX_PLY {
+                if let Some((pp2, pto2)) = ctx.stack[ply - 2].cont_entry {
+                    let pt = piece_type(moving_piece) as usize;
+                    let to_idx = move_to(m) as usize;
+                    let old = ctx.cont2[pp2][pto2][pt][to_idx];
+                    let half_malus = history_malus(depth) / 2;
+                    ctx.cont2[pp2][pto2][pt][to_idx] = old + half_malus - (old * half_malus.abs()) / HISTORY_GRAVITY;
+                }
+            }
+            // Cont4 malus with quarter magnitude
+            if ply >= 4 && ply < MAX_PLY {
+                if let Some((pp4, pto4)) = ctx.stack[ply - 4].cont_entry {
+                    let pt = piece_type(moving_piece) as usize;
+                    let to_idx = move_to(m) as usize;
+                    let old = ctx.cont4[pp4][pto4][pt][to_idx];
+                    let quarter_malus = history_malus(depth) / 4;
+                    ctx.cont4[pp4][pto4][pt][to_idx] = old + quarter_malus - (old * quarter_malus.abs()) / HISTORY_GRAVITY;
+                }
+            }
+            // Cont6 malus with quarter magnitude
+            if ply >= 6 && ply < MAX_PLY {
+                if let Some((pp6, pto6)) = ctx.stack[ply - 6].cont_entry {
+                    let pt = piece_type(moving_piece) as usize;
+                    let to_idx = move_to(m) as usize;
+                    let old = ctx.cont6[pp6][pto6][pt][to_idx];
+                    let quarter_malus = history_malus(depth) / 4;
+                    ctx.cont6[pp6][pto6][pt][to_idx] = old + quarter_malus - (old * quarter_malus.abs()) / HISTORY_GRAVITY;
+                }
+            }
         }
 
         if score > best_score {
@@ -573,7 +513,7 @@ pub(in crate::search) fn alpha_beta(
                 ctx.stats.first_move_cutoffs += 1;
             }
             bound = Bound::Lower;
-            handle_beta_cutoff(ctx, board, m, ply, depth, is_capture);
+            handle_beta_cutoff(ctx, board, m, ply, depth, is_capture, score, beta);
             break;
         }
     }
@@ -599,26 +539,22 @@ pub(in crate::search) fn alpha_beta(
     // Pop our position hash from history
     ctx.history_hashes.pop();
 
-    // If some legal moves were pruned and none of the searched moves raised
-    // alpha, we only know the node failed low relative to the original window.
-    // Returning/storing a searched best_score below original_alpha would create
-    // an over-tight upper bound that ignores the unsearched pruned moves.
-    if ffp_pruned_any && bound == Bound::Upper {
-        best_score = best_score.max(original_alpha);
-    }
+    // Update correction history using the search result vs raw eval.
+    let raw_eval_for_correction = ctx.stack[ply]
+        .static_eval
+        .unwrap_or(static_eval);
+    update_correction(ctx, board, depth, best_score, raw_eval_for_correction, ply);
+    ctx.stats.corr_update_count += 1;
 
-    // TT store (mate scores converted to node-relative distance). Do not let
-    // shadow probes seed the TT for the real search after they return.
-    if !ctx.in_criticality_probe {
-        ctx.tt.store(
-            board.hash,
-            score_to_tt(best_score, ply),
-            best_move,
-            depth as i8,
-            bound,
-            static_eval as i16,
-        );
-    }
+    // TT store (mate scores converted to node-relative distance).
+    ctx.tt.store(
+        board.hash,
+        score_to_tt(best_score, ply),
+        best_move,
+        depth as i8,
+        bound,
+        static_eval as i16,
+    );
 
     best_score
 }

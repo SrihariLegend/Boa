@@ -1,4 +1,59 @@
 use super::*;
+
+/// Allocate a continuation-history table on the heap without stack temporaries.
+/// Each table is 6×64×6×64 = 147,456 i32s = 576 KB — too large for
+/// Box::new([[[[...]]]]) which constructs a stack temporary first.
+///
+/// Uses the same Layout for allocation and deallocation (required by Rust's
+/// allocator contract — `Box::from_raw` deallocates with Layout::new::<T>()).
+fn new_cont_table() -> Box<[[[[i32; 64]; 6]; 64]; 6]> {
+    use std::alloc::{alloc, Layout};
+    let layout = Layout::new::<[[[[i32; 64]; 6]; 64]; 6]>();
+    let ptr = unsafe { alloc(layout) as *mut [[[[i32; 64]; 6]; 64]; 6] };
+    assert!(!ptr.is_null(), "cont table alloc failed");
+    // Initialize to -552
+    unsafe {
+        let p = ptr as *mut i32;
+        for i in 0..(6 * 64 * 6 * 64) {
+            p.add(i).write(-552i32);
+        }
+    }
+    unsafe { Box::from_raw(ptr) }
+}
+
+/// Allocate a pawn-history table on the heap (1024×6×64 = ~1.5 MB).
+fn new_pawn_history_table() -> Box<[[[i32; 64]; 6]; 1024]> {
+    use std::alloc::{alloc, Layout};
+    let layout = Layout::new::<[[[i32; 64]; 6]; 1024]>();
+    let ptr = unsafe { alloc(layout) as *mut [[[i32; 64]; 6]; 1024] };
+    assert!(!ptr.is_null(), "pawn history table alloc failed");
+    // Initialize to 0: pawn structure provides hard context that makes the
+    // zero-meaningful case rare — the table key is inherently informative.
+    unsafe {
+        let p = ptr as *mut i32;
+        for i in 0..(1024 * 6 * 64) {
+            p.add(i).write(0i32);
+        }
+    }
+    unsafe { Box::from_raw(ptr) }
+}
+
+/// Allocate a continuation-correction table on the heap (2×384×384 = ~1.1 MB).
+fn new_cont_corr_table() -> Box<[[[i32; 384]; 384]; 2]> {
+    use std::alloc::{alloc, Layout};
+    let layout = Layout::new::<[[[i32; 384]; 384]; 2]>();
+    let ptr = unsafe { alloc(layout) as *mut [[[i32; 384]; 384]; 2] };
+    assert!(!ptr.is_null(), "cont corr table alloc failed");
+    // Correction tables start at zero.
+    unsafe {
+        let p = ptr as *mut i32;
+        for i in 0..(2 * 384 * 384) {
+            p.add(i).write(0i32);
+        }
+    }
+    unsafe { Box::from_raw(ptr) }
+}
+
 pub struct SearchContext<'a> {
     pub atk: &'a AttackTables,
     pub z: &'a Zobrist,
@@ -11,9 +66,6 @@ pub struct SearchContext<'a> {
     pub root_color: Color,
     pub game_id: u64,
     pub search_id: u64,
-    pub criticality_logger: Option<CriticalityLogger>,
-    pub(in crate::search) in_criticality_probe: bool,
-
     // Set by the UCI input thread when "stop"/"quit" arrives mid-search.
     // Without this the engine can emit a stale bestmove into the next game
     // (cutechess then scores it as an illegal move).
@@ -40,6 +92,28 @@ pub struct SearchContext<'a> {
     // Capture history: [color][moving_piece_type][to_sq][captured_piece_type] -> i32
     pub cap_history: [[[[i32; 6]; 64]; 6]; 2],
 
+    // Continuation history 1-ply: [prev_piece][prev_to][piece][to] -> i32
+    // 6 x 64 x 6 x 64 = 147,456 entries, 576 KB. On the heap to avoid stack overflow.
+    pub cont1: Box<[[[[i32; 64]; 6]; 64]; 6]>,
+
+    // Continuation history 2-ply: [prev2_piece][prev2_to][piece][to] -> i32
+    pub cont2: Box<[[[[i32; 64]; 6]; 64]; 6]>,
+
+    // Continuation history 4-ply and 6-ply
+    pub cont4: Box<[[[[i32; 64]; 6]; 64]; 6]>,
+    pub cont6: Box<[[[[i32; 64]; 6]; 64]; 6]>,
+
+    /// Pawn history: [pawn_hash % 1024][piece_type][to_sq] -> i32
+    /// Keyed by pawn structure hash instead of the previous move.
+    pub pawn_history: Box<[[[i32; 64]; 6]; 1024]>,
+
+    /// Correction history tables — per-thread online statistical correction to
+    /// static eval. Learn systematic eval biases for specific position types.
+    pub pawn_corr: Box<[[i32; 16384]; 2]>,         // [stm][pawn_hash % 16384]
+    pub nonpawn_corr_w: Box<[[i32; 16384]; 2]>,     // [stm][non_pawn_hash(White) % 16384]
+    pub nonpawn_corr_b: Box<[[i32; 16384]; 2]>,     // [stm][non_pawn_hash(Black) % 16384]
+    pub cont_corr: Box<[[[i32; 384]; 384]; 2]>,     // [stm][prev_piece_to][prev2_piece_to]
+
     // Stack info per ply
     pub stack: [PlyInfo; 128],
 
@@ -51,6 +125,15 @@ pub struct SearchContext<'a> {
 pub struct PlyInfo {
     pub current_move: Move,
     pub static_eval: Option<Score>,
+    /// (piece_type as usize, to_sq as usize) of the move made at this ply.
+    /// Used by continuation history — the child reads this from `stack[ply-1]`
+    /// to get the previous move's piece and destination.
+    pub cont_entry: Option<(usize, usize)>,
+    /// Correction value computed at this ply (for probe diagnostics).
+    pub correction_value: Option<i32>,
+    /// Cached non-pawn zobrist hashes for this node (White, Black).
+    /// Computed once and reused by correction read + update.
+    pub non_pawn_hashes: Option<(u64, u64)>,
 }
 
 impl<'a> SearchContext<'a> {
@@ -68,13 +151,6 @@ impl<'a> SearchContext<'a> {
         game_id: u64,
         search_id: u64,
     ) -> Self {
-        let criticality_logger = match CriticalityLogger::open(&options.criticality.log_dir) {
-            Ok(logger) => logger,
-            Err(err) => {
-                eprintln!("info string CriticalityLogDir error: {err}");
-                None
-            }
-        };
         SearchContext {
             atk,
             z,
@@ -90,8 +166,6 @@ impl<'a> SearchContext<'a> {
             root_color: Color::White, // set by search() before iterating
             game_id,
             search_id,
-            criticality_logger,
-            in_criticality_probe: false,
             history_hashes,
             nodes: 0,
             stopped: false,
@@ -99,6 +173,15 @@ impl<'a> SearchContext<'a> {
             history: [[[-5i32; 64]; 6]; 2],
             counter: [[MOVE_NONE; 64]; 64],
             cap_history: [[[[-700i32; 6]; 64]; 6]; 2],
+            cont1: new_cont_table(),
+            cont2: new_cont_table(),
+            cont4: new_cont_table(),
+            cont6: new_cont_table(),
+            pawn_history: new_pawn_history_table(),
+            pawn_corr: Box::new([[0i32; 16384]; 2]),
+            nonpawn_corr_w: Box::new([[0i32; 16384]; 2]),
+            nonpawn_corr_b: Box::new([[0i32; 16384]; 2]),
+            cont_corr: new_cont_corr_table(),
             stack: [PlyInfo::default(); 128],
             stats: SearchStats::default(),
         }

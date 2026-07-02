@@ -23,19 +23,6 @@ impl EngineOptions {
             "syzygyprobedepth" => set_u32(&mut self.syzygy.probe_depth, value, 0, 64),
             "syzygyprobelimit" => set_usize(&mut self.syzygy.probe_limit, value, 0, 6),
             "syzygy50moverule" => set_bool(&mut self.syzygy.fifty_move_rule, value),
-            "criticalitylogdir" => {
-                self.criticality.log_dir = value.to_string();
-                true
-            }
-            "criticalityprobepermille" => {
-                set_u32(&mut self.criticality.probe_permille, value, 0, 1000)
-            }
-            "futilityprobepermille" | "criticalityfutilityprobepermille" => set_u32(
-                &mut self.criticality.futility_probe_permille,
-                value,
-                0,
-                1000,
-            ),
             _ => false,
         }
     }

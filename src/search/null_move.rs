@@ -2,6 +2,10 @@ use super::*;
 use crate::probe;
 
 /// Try null-move pruning. Returns Some(score) if we can cut off.
+///
+/// When correction is large (eval unreliable), the entry threshold is
+/// tightened by |corr| * CORR_W_NMP / 512 — requiring eval to be further
+/// above beta before attempting null move.
 pub(in crate::search) fn try_null_move(
     board: &mut Board,
     ctx: &mut SearchContext,
@@ -9,8 +13,10 @@ pub(in crate::search) fn try_null_move(
     depth: i32,
     ply: usize,
     static_eval: Score,
+    corr_val: i32,
 ) -> Option<Score> {
-    if depth < NULL_MOVE_MIN_DEPTH || static_eval < beta {
+    let corr_margin = (corr_w_nmp() * corr_val.abs()) / 512;
+    if depth < NULL_MOVE_MIN_DEPTH || static_eval - corr_margin < beta {
         return None;
     }
     let our_pieces = board.occ[board.side as usize]

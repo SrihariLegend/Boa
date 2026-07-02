@@ -27,8 +27,6 @@ pub(in crate::search) fn lazy_smp_search(
     let search_id = ctx.search_id;
     let mut worker_options = ctx.options.clone();
     worker_options.search.threads = 1;
-    worker_options.criticality.log_dir.clear();
-    worker_options.criticality.probe_permille = 0;
 
     std::thread::scope(|scope| {
         let mut handles = Vec::with_capacity(threads.saturating_sub(1));
@@ -210,12 +208,6 @@ pub(in crate::search) fn search_single(
         }
     }
 
-    if let Some(logger) = &mut ctx.criticality_logger {
-        if let Err(err) = logger.flush() {
-            eprintln!("info string criticality log flush failed: {err}");
-        }
-    }
-
     let elapsed = ctx.elapsed_ms().max(1);
     probe!(SearchSummary, SearchSummaryEvent {
         depth_completed: completed_depth as i32,
@@ -247,6 +239,36 @@ pub(in crate::search) fn search_single(
         iid_successes: ctx.stats.iid_successes,
         tb_hits: ctx.stats.tb_hits,
         dropped_probe_events: 0,
+    });
+
+    // Emit continuation history diagnostic probes (one per table)
+    probe!(ContHistory, ContHistoryEvent {
+        table: "cont1",
+        hit_rate: 0.0,
+        avg_score: 0.0,
+        max_abs: 0,
+        update_freq: ctx.stats.cont1_update_count,
+    });
+    probe!(ContHistory, ContHistoryEvent {
+        table: "cont2",
+        hit_rate: 0.0,
+        avg_score: 0.0,
+        max_abs: 0,
+        update_freq: ctx.stats.cont2_update_count,
+    });
+    probe!(ContHistory, ContHistoryEvent {
+        table: "cont4",
+        hit_rate: 0.0,
+        avg_score: 0.0,
+        max_abs: 0,
+        update_freq: ctx.stats.cont4_update_count,
+    });
+    probe!(ContHistory, ContHistoryEvent {
+        table: "cont6",
+        hit_rate: 0.0,
+        avg_score: 0.0,
+        max_abs: 0,
+        update_freq: ctx.stats.cont6_update_count,
     });
 
     SearchResult {

@@ -87,35 +87,7 @@ pub struct FfpInput {
     pub move_index: usize,
     pub is_cut_node: bool,
     pub history_score: i32,
-    pub sigma: i32,
-}
-
-pub(in crate::search) struct CriticalityRecordInput {
-    pub(in crate::search) enabled: bool,
-    pub(in crate::search) node_hash: u64,
-    pub(in crate::search) side_to_move: Color,
-    pub(in crate::search) m: Move,
-    pub(in crate::search) ply: usize,
-    pub(in crate::search) from: Square,
-    pub(in crate::search) to: Square,
-    pub(in crate::search) moving_piece: Piece,
-    pub(in crate::search) depth: i32,
-    pub(in crate::search) move_index: usize,
-    pub(in crate::search) base_reduction: i32,
-    pub(in crate::search) final_reduction: i32,
-    pub(in crate::search) new_depth: i32,
-    pub(in crate::search) history_score: i32,
-    pub(in crate::search) static_eval: Score,
-    pub(in crate::search) prev_static_eval: Option<Score>,
-    pub(in crate::search) alpha: Score,
-    pub(in crate::search) beta: Score,
-    pub(in crate::search) is_pv: bool,
-    pub(in crate::search) is_cut_node: bool,
-    pub(in crate::search) improving: bool,
-    pub(in crate::search) is_killer: bool,
-    pub(in crate::search) is_counter: bool,
-    pub(in crate::search) tt_move_agreement: bool,
-    pub(in crate::search) sigma: Option<i32>,
+    pub corr_val: i32,
 }
 
 // ---- Search context ----

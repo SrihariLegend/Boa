@@ -7,5 +7,5 @@ mod setters;
 #[cfg(test)]
 mod tests;
 
-pub use options::{CriticalityOptions, EngineOptions, EvalOptions, SearchOptions, SyzygyOptions};
+pub use options::{EngineOptions, EvalOptions, SearchOptions, SyzygyOptions};
 pub use scale::scale_score_pair;

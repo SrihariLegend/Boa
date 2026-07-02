@@ -32,6 +32,20 @@ pub struct SearchStats {
     pub iid_successes: u64,
 
     pub tb_hits: u64,
+
+    // Continuation history diagnostics
+    pub cont1_total_quiet_moves: u64,
+    pub cont1_nonzero_moves: u64,
+    pub cont1_score_sum: i64,
+    pub cont1_update_count: u64,
+    pub cont2_update_count: u64,
+    pub cont4_update_count: u64,
+    pub cont6_update_count: u64,
+
+    // Correction history diagnostics
+    pub corr_update_count: u64,
+    pub corr_value_sum: i64,
+    pub corr_sample_count: u64,
 }
 
 impl SearchStats {

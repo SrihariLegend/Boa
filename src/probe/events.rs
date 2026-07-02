@@ -672,6 +672,46 @@ pub struct MateDistanceEvent {
 }
 
 // ============================================================
+// 25. Continuation History — typ:"ch"
+// ============================================================
+#[cfg_attr(feature = "probes", derive(Serialize))]
+pub struct ContHistoryEvent {
+    #[cfg_attr(feature = "probes", serde(rename = "tb"))]
+    pub table: &'static str,       // "cont1", "cont2", "cont4", "cont6"
+    #[cfg_attr(feature = "probes", serde(rename = "hr"))]
+    pub hit_rate: f64,             // fraction of quiet moves with non-zero score
+    #[cfg_attr(feature = "probes", serde(rename = "as"))]
+    pub avg_score: f64,            // average contribution to move score (abs)
+    #[cfg_attr(feature = "probes", serde(rename = "mx"))]
+    pub max_abs: i32,              // max absolute value in table
+    #[cfg_attr(feature = "probes", serde(rename = "uf"))]
+    pub update_freq: u64,          // bonus+malus updates this search
+}
+
+// ============================================================
+// 26. Correction History — typ:"cr"
+// ============================================================
+#[cfg_attr(feature = "probes", derive(Serialize))]
+pub struct CorrectionHistoryEvent {
+    #[cfg_attr(feature = "probes", serde(rename = "cv"))]
+    pub correction_value: i32,       // total correction (in corr units; /512 → cp)
+    #[cfg_attr(feature = "probes", serde(rename = "re"))]
+    pub raw_eval: i32,               // raw static eval before correction
+    #[cfg_attr(feature = "probes", serde(rename = "ce"))]
+    pub corrected_eval: i32,         // eval after correction
+    #[cfg_attr(feature = "probes", serde(rename = "df"))]
+    pub diff: i32,                   // best_score - raw_eval (the correction update)
+    #[cfg_attr(feature = "probes", serde(rename = "pc"))]
+    pub pawn_corr: i32,              // pawn correction component
+    #[cfg_attr(feature = "probes", serde(rename = "np"))]
+    pub nonpawn_corr: i32,           // non-pawn correction component
+    #[cfg_attr(feature = "probes", serde(rename = "cc"))]
+    pub cont_corr: i32,              // continuation correction component
+    #[cfg_attr(feature = "probes", serde(rename = "pl"))]
+    pub ply: u32,
+}
+
+// ============================================================
 // Master enum — serde(tag = "typ") produces {"typ":"fp",...fields}
 // ============================================================
 #[cfg_attr(feature = "probes", derive(Serialize))]
@@ -725,6 +765,10 @@ pub enum ProbeEvent {
     DrawDetection(DrawEvent),
     #[cfg_attr(feature = "probes", serde(rename = "md"))]
     MateDistance(MateDistanceEvent),
+    #[cfg_attr(feature = "probes", serde(rename = "ch"))]
+    ContHistory(ContHistoryEvent),
+    #[cfg_attr(feature = "probes", serde(rename = "cr"))]
+    CorrectionHistory(CorrectionHistoryEvent),
 
     /// Sentinel: tells the writer thread to flush and end the file.
     #[cfg_attr(feature = "probes", serde(rename = "xx"))]
