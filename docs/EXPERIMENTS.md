@@ -29,8 +29,7 @@ failed experiments here instead of leaving dormant code in the engine.
 | Quiet-check generation for quiescence | Not active | Removed from `movegen.rs`; current quiescence handles captures and bounded check evasions only. |
 | Static Exchange Evaluation (SEE) helpers | Re-integrated | Initially removed; re-implemented in `search/see.rs` and now used for losing-capture pruning in quiescence and FFP see-guard. |
 | Unified ML model for FFP/RFP | Failed Elo | A unified ML model across the pruning subsystem (FFP + RFP + LMR) failed to gain Elo. FFP and RFP remain classical (simple margin formulas). Do not reintroduce learned models for these without strong SPRT evidence. |
-| Criticality P99 threshold for LMR protection | Replaced by P97 | The initial learned criticality LMR guard used a P99 threshold. The 200-game model tested P99, P97, and P95-r2; P97 was adopted as the best balance of protection (~3% of reduced moves) vs search overhead. |
-| Criticality P95 reduction-2 gate | Not adopted | Tested on branch `criticality-200-p95-r2`: protected top 5% of reduced moves only when pre-protection reduction ≥ 2. P97 without the reduction gate was simpler and adopted instead. |
+| Learned Criticality Guard for LMR | Stripped | The logistic criticality guard trained on counterfactual probes (P97 threshold) was originally merged but later fully stripped in a refactor cleaning up ML code. LMR now uses entirely classical logic. |
 
 ## Rejected Architectural Directions
 

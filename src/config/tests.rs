@@ -18,7 +18,6 @@ pub(super) fn uci_option_names_accept_spaces_and_case() {
 
     assert!(options.set_uci_option("Syzygy Path", "/tmp/tb"));
     assert_eq!(options.syzygy.path, "/tmp/tb");
-
 }
 
 #[test]
@@ -33,5 +32,4 @@ pub(super) fn eval_scales_are_clamped() {
 
     assert!(options.set_uci_option("Syzygy Probe Limit", "99"));
     assert_eq!(options.syzygy.probe_limit, 6);
-
 }

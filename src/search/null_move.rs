@@ -45,14 +45,17 @@ pub(in crate::search) fn try_null_move(
     board.unmake_null_move(&undo);
 
     let pruned = null_score >= beta;
-    probe!(NullMove, NullMoveEvent {
-        depth: depth,
-        static_eval: static_eval,
-        beta: beta,
-        reduction: r,
-        null_move_score: null_score,
-        pruned: pruned,
-    });
+    probe!(
+        NullMove,
+        NullMoveEvent {
+            depth: depth,
+            static_eval: static_eval,
+            beta: beta,
+            reduction: r,
+            null_move_score: null_score,
+            pruned: pruned,
+        }
+    );
     if pruned {
         ctx.stats.null_move_cutoffs += 1;
         return Some(beta);

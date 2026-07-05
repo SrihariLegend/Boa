@@ -218,8 +218,7 @@ pub(in crate::search) fn update_cap_history(
     let bonus = history_delta(depth, true);
     let old = ctx.cap_history[ci][mover_pt][to][cap_pt];
     // Gravity formula for capture history
-    ctx.cap_history[ci][mover_pt][to][cap_pt] =
-        old + bonus - (old * bonus.abs()) / HISTORY_GRAVITY;
+    ctx.cap_history[ci][mover_pt][to][cap_pt] = old + bonus - (old * bonus.abs()) / HISTORY_GRAVITY;
 }
 
 /// Handle beta cutoff: update killers, history, counter moves.
@@ -249,8 +248,7 @@ pub(in crate::search) fn handle_beta_cutoff(
         let pt = piece_type(moving_piece) as usize;
         let to = move_to(m) as usize;
         let old = ctx.pawn_history[pawn_idx][pt][to];
-        ctx.pawn_history[pawn_idx][pt][to] = old + bonus
-            - (old * bonus.abs()) / HISTORY_GRAVITY;
+        ctx.pawn_history[pawn_idx][pt][to] = old + bonus - (old * bonus.abs()) / HISTORY_GRAVITY;
     }
     // Update continuation history 1-ply
     if ply > 0 && ply < 128 {
@@ -269,7 +267,8 @@ pub(in crate::search) fn handle_beta_cutoff(
             let to = move_to(m) as usize;
             let old = ctx.cont2[pp2][pto2][pt][to];
             let half_bonus = bonus / 2;
-            ctx.cont2[pp2][pto2][pt][to] = old + half_bonus - (old * half_bonus.abs()) / HISTORY_GRAVITY;
+            ctx.cont2[pp2][pto2][pt][to] =
+                old + half_bonus - (old * half_bonus.abs()) / HISTORY_GRAVITY;
         }
     }
     // Update continuation history 4-ply with quarter bonus
@@ -279,7 +278,8 @@ pub(in crate::search) fn handle_beta_cutoff(
             let to = move_to(m) as usize;
             let old = ctx.cont4[pp4][pto4][pt][to];
             let quarter_bonus = bonus / 4;
-            ctx.cont4[pp4][pto4][pt][to] = old + quarter_bonus - (old * quarter_bonus.abs()) / HISTORY_GRAVITY;
+            ctx.cont4[pp4][pto4][pt][to] =
+                old + quarter_bonus - (old * quarter_bonus.abs()) / HISTORY_GRAVITY;
         }
     }
     // Update continuation history 6-ply with quarter bonus
@@ -289,7 +289,8 @@ pub(in crate::search) fn handle_beta_cutoff(
             let to = move_to(m) as usize;
             let old = ctx.cont6[pp6][pto6][pt][to];
             let quarter_bonus = bonus / 4;
-            ctx.cont6[pp6][pto6][pt][to] = old + quarter_bonus - (old * quarter_bonus.abs()) / HISTORY_GRAVITY;
+            ctx.cont6[pp6][pto6][pt][to] =
+                old + quarter_bonus - (old * quarter_bonus.abs()) / HISTORY_GRAVITY;
         }
     }
     if ply == 0 || ply >= 128 {

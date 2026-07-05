@@ -1,14 +1,10 @@
 # Boa Tools
 
-Engine testing, match running, and criticality model training.
+Engine testing and match running.
 
 ## Tool Map
 
-- `train.py` — unified criticality pipeline (collect, train, all, check).
-- `criticality_dataset.mjs` — game runner invoked by `train.py collect`.
-- `train_criticality.py` — training library (logistic fit, metrics, CSV loading).
 - `openings.epd` — opening suite for self-play and engine matches.
-- `CRITICALITY_GUIDE.md` — how to use the training pipeline, add/remove features.
 - `AGENT_GUIDE.md` — playbook for coding agents using these tools.
 
 Generated files that should stay local: `target/`, `analysis/`.
@@ -23,34 +19,8 @@ cargo build --release
 
 Local dependencies:
 
-- `cutechess-cli` — required for self-play game collection.
-- `python3` with `numpy` and `scikit-learn` — required for training.
-- `node` — required for the game runner (`criticality_dataset.mjs`).
-
-## Criticality Training
-
-The learned LMR criticality guard is trained on shadow counterfactual probes.
-One script drives the whole pipeline:
-
-```sh
-# Full pipeline: play 200 self-play games, train, write coefficients
-python3 tools/train.py all --games 200 --probe-permille 5
-
-# Collect only:
-python3 tools/train.py collect --games 200
-
-# Train from existing data:
-python3 tools/train.py train --data analysis/criticality/<run>/raw
-
-# Probe health check:
-python3 tools/train.py check --data analysis/criticality/<run>/raw
-```
-
-The coefficients are written to `target/release/criticality.coeffs`.  The
-engine loads them at startup.  Previous coefficients are archived as
-commented-out history below the `---` separator.
-
-Full documentation: `tools/CRITICALITY_GUIDE.md`.
+- `cutechess-cli` — required for self-play game collection and matches.
+- `python3` — for diagnostic and analysis scripts.
 
 ## Running Matches
 

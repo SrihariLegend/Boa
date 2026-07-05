@@ -109,10 +109,10 @@ pub struct SearchContext<'a> {
 
     /// Correction history tables — per-thread online statistical correction to
     /// static eval. Learn systematic eval biases for specific position types.
-    pub pawn_corr: Box<[[i32; 16384]; 2]>,         // [stm][pawn_hash % 16384]
-    pub nonpawn_corr_w: Box<[[i32; 16384]; 2]>,     // [stm][non_pawn_hash(White) % 16384]
-    pub nonpawn_corr_b: Box<[[i32; 16384]; 2]>,     // [stm][non_pawn_hash(Black) % 16384]
-    pub cont_corr: Box<[[[i32; 384]; 384]; 2]>,     // [stm][prev_piece_to][prev2_piece_to]
+    pub pawn_corr: Box<[[i32; 16384]; 2]>, // [stm][pawn_hash % 16384]
+    pub nonpawn_corr_w: Box<[[i32; 16384]; 2]>, // [stm][non_pawn_hash(White) % 16384]
+    pub nonpawn_corr_b: Box<[[i32; 16384]; 2]>, // [stm][non_pawn_hash(Black) % 16384]
+    pub cont_corr: Box<[[[i32; 384]; 384]; 2]>, // [stm][prev_piece_to][prev2_piece_to]
 
     // Stack info per ply
     pub stack: [PlyInfo; 128],

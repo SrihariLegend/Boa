@@ -44,13 +44,26 @@ impl SyzygyTablebase {
         let pos = board_to_shakmaty(board)?;
         let result = probe_position_score(&self.tables, &pos, options, ply);
         if let Some(score) = result {
-            probe!(Syzygy, SyzygyEvent {
-                result: if score > 0 { "win" } else if score < 0 { "loss" } else { "draw" },
-                distance_to_mate: if score.abs() > SCORE_MATE - 128 { (SCORE_MATE - score.abs()) as i32 } else { 0 },
-                piece_count: 0, // TODO: compute from board occupancy
-                dtz_value: 0,
-                wdl_probe_success: true,
-            });
+            probe!(
+                Syzygy,
+                SyzygyEvent {
+                    result: if score > 0 {
+                        "win"
+                    } else if score < 0 {
+                        "loss"
+                    } else {
+                        "draw"
+                    },
+                    distance_to_mate: if score.abs() > SCORE_MATE - 128 {
+                        (SCORE_MATE - score.abs()) as i32
+                    } else {
+                        0
+                    },
+                    piece_count: 0, // TODO: compute from board occupancy
+                    dtz_value: 0,
+                    wdl_probe_success: true,
+                }
+            );
         }
         result
     }

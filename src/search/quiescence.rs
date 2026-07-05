@@ -116,14 +116,18 @@ pub(in crate::search) fn quiescence(
 
         if ctx.options.search.see && ctx.options.search.see_qsearch_pruning {
             let see = static_exchange_eval(board, ctx.atk, m);
-            sample_probe!(16, See, SeeEvent {
-                see_value: see,
-                captured_value: 0,
-                threshold: 0,
-                pruned_by_see: see < 0 && move_flags(m) != MF_PROMOTION,
-                searched_despite_bad_see: see < 0 && move_flags(m) == MF_PROMOTION,
-                pin_excluded: false,
-            });
+            sample_probe!(
+                16,
+                See,
+                SeeEvent {
+                    see_value: see,
+                    captured_value: 0,
+                    threshold: 0,
+                    pruned_by_see: see < 0 && move_flags(m) != MF_PROMOTION,
+                    searched_despite_bad_see: see < 0 && move_flags(m) == MF_PROMOTION,
+                    pin_excluded: false,
+                }
+            );
             if see > 0 {
                 ctx.stats.see_win_caps += 1;
             } else if see == 0 {
@@ -156,18 +160,22 @@ pub(in crate::search) fn quiescence(
         }
     }
 
-    sample_probe!(32, Quiescence, QuiescenceEvent {
-        ply: ply as u32,
-        stand_pat_score: stand_pat,
-        alpha: alpha,
-        beta: beta,
-        final_score: alpha,
-        captures_searched: captures_searched,
-        delta_pruned_count: delta_pruned,
-        see_pruned_count: see_pruned,
-        in_check: false,
-        futility_cutoff: false,
-    });
+    sample_probe!(
+        32,
+        Quiescence,
+        QuiescenceEvent {
+            ply: ply as u32,
+            stand_pat_score: stand_pat,
+            alpha: alpha,
+            beta: beta,
+            final_score: alpha,
+            captures_searched: captures_searched,
+            delta_pruned_count: delta_pruned,
+            see_pruned_count: see_pruned,
+            in_check: false,
+            futility_cutoff: false,
+        }
+    );
 
     alpha
 }

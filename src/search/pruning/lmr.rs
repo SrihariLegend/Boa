@@ -54,23 +54,27 @@ pub(in crate::search) fn compute_lmr_reduction_details(
         input.depth - 1
     };
 
-    sample_probe!(4, Lmr, LmrEvent {
-        depth: input.depth,
-        ply: input.ply as u32,
-        move_index: input.move_index as u32,
-        moves_searched: input.moves_searched as u32,
-        history_score: input.history_score,
-        base_reduction: base_reduction,
-        actual_reduction: final_reduction,
-        new_depth: new_depth,
-        improving: input.improving,
-        is_killer: input.is_killer,
-        is_counter: input.is_counter,
-        tt_move_agreement: input.tt_move_agreement,
-        gives_check: input.gives_check,
-        moving_piece: input.moving_piece as u8,
-        is_cut_node: input.is_cut_node,
-    });
+    sample_probe!(
+        4,
+        Lmr,
+        LmrEvent {
+            depth: input.depth,
+            ply: input.ply as u32,
+            move_index: input.move_index as u32,
+            moves_searched: input.moves_searched as u32,
+            history_score: input.history_score,
+            base_reduction: base_reduction,
+            actual_reduction: final_reduction,
+            new_depth: new_depth,
+            improving: input.improving,
+            is_killer: input.is_killer,
+            is_counter: input.is_counter,
+            tt_move_agreement: input.tt_move_agreement,
+            gives_check: input.gives_check,
+            moving_piece: input.moving_piece as u8,
+            is_cut_node: input.is_cut_node,
+        }
+    );
 
     LmrReduction {
         base_reduction,

@@ -82,7 +82,7 @@ pub(in crate::search) fn ffp_margin_uses_history_and_move_index() {
         move_index: 1,
         is_cut_node: false,
         history_score: 0,
-            corr_val: 0,
+        corr_val: 0,
     });
     let late_all = ffp_margin(FfpInput {
         depth: FFP_MAX_DEPTH,
@@ -91,7 +91,7 @@ pub(in crate::search) fn ffp_margin_uses_history_and_move_index() {
         move_index: FFP_MAX_RANK,
         is_cut_node: false,
         history_score: 0,
-            corr_val: 0,
+        corr_val: 0,
     });
     assert!(early_all > late_all, "early move should have higher margin");
 
@@ -102,7 +102,7 @@ pub(in crate::search) fn ffp_margin_uses_history_and_move_index() {
         move_index: 10,
         is_cut_node: false,
         history_score: 0,
-            corr_val: 0,
+        corr_val: 0,
     });
     let good_hist = ffp_margin(FfpInput {
         depth: FFP_MAX_DEPTH,
@@ -125,7 +125,7 @@ pub(in crate::search) fn ffp_prunes_only_beyond_safety_buffer() {
         move_index: 10,
         is_cut_node: false,
         history_score: 0,
-            corr_val: 0,
+        corr_val: 0,
     });
 
     assert!(should_ffp_prune(FfpInput {
@@ -135,7 +135,7 @@ pub(in crate::search) fn ffp_prunes_only_beyond_safety_buffer() {
         move_index: 10,
         is_cut_node: false,
         history_score: 0,
-            corr_val: 0,
+        corr_val: 0,
     }));
 
     assert!(!should_ffp_prune(FfpInput {
@@ -145,7 +145,7 @@ pub(in crate::search) fn ffp_prunes_only_beyond_safety_buffer() {
         move_index: 10,
         is_cut_node: false,
         history_score: 0,
-            corr_val: 0,
+        corr_val: 0,
     }));
 }
 

@@ -89,17 +89,24 @@ pub(in crate::search) fn search_single(
         ctx.limits.move_time = hard_limit;
     }
 
-    let time_color = if board.side == Color::White { (ctx.limits.wtime, ctx.limits.winc) } else { (ctx.limits.btime, ctx.limits.binc) };
-    probe!(TimeManagement, TimeManagementEvent {
-        allocated: time_budget,
-        hard_limit: hard_limit,
-        optimum_time: time_budget,
-        elapsed: 0,
-        moves_to_go: ctx.limits.moves_to_go,
-        move_overhead: MOVE_OVERHEAD_MS,
-        remaining_clock: time_color.0,
-        increment: time_color.1,
-    });
+    let time_color = if board.side == Color::White {
+        (ctx.limits.wtime, ctx.limits.winc)
+    } else {
+        (ctx.limits.btime, ctx.limits.binc)
+    };
+    probe!(
+        TimeManagement,
+        TimeManagementEvent {
+            allocated: time_budget,
+            hard_limit: hard_limit,
+            optimum_time: time_budget,
+            elapsed: 0,
+            moves_to_go: ctx.limits.moves_to_go,
+            move_overhead: MOVE_OVERHEAD_MS,
+            remaining_clock: time_color.0,
+            increment: time_color.1,
+        }
+    );
 
     let mut best_move = MOVE_NONE;
     let mut best_score = -SCORE_INF;
@@ -170,17 +177,20 @@ pub(in crate::search) fn search_single(
         }
         completed_depth = depth;
 
-        probe!(Root, RootEvent {
-            depth: depth as i32,
-            best_move: move_name(best_move),
-            best_score: best_score,
-            pv_line: pv_str.trim().to_string(),
-            best_move_changed: false,
-            previous_best_move: String::new(),
-            iteration_time_ms: elapsed,
-            nodes_this_iteration: ctx.nodes,
-            aspiration_fails: 0,
-        });
+        probe!(
+            Root,
+            RootEvent {
+                depth: depth as i32,
+                best_move: move_name(best_move),
+                best_score: best_score,
+                pv_line: pv_str.trim().to_string(),
+                best_move_changed: false,
+                previous_best_move: String::new(),
+                iteration_time_ms: elapsed,
+                nodes_this_iteration: ctx.nodes,
+                aspiration_fails: 0,
+            }
+        );
 
         // Time management: stop if we've used our soft budget
         if time_budget > 0 && ctx.elapsed_ms() >= time_budget {
@@ -209,67 +219,82 @@ pub(in crate::search) fn search_single(
     }
 
     let elapsed = ctx.elapsed_ms().max(1);
-    probe!(SearchSummary, SearchSummaryEvent {
-        depth_completed: completed_depth as i32,
-        total_nodes: ctx.nodes,
-        qsearch_nodes: ctx.stats.qnodes,
-        time_ms: elapsed,
-        nodes_per_sec: ctx.nodes * 1000 / elapsed,
-        best_move: move_name(best_move),
-        best_score: best_score,
-        sel_depth: completed_depth as i32,
-        tt_probes: ctx.stats.tt_probes,
-        tt_hits: ctx.stats.tt_hits,
-        tt_cutoffs: ctx.stats.tt_cutoffs,
-        beta_cutoffs: ctx.stats.beta_cutoffs,
-        first_move_cutoffs: ctx.stats.first_move_cutoffs,
-        null_move_tries: ctx.stats.null_move_tries,
-        null_move_cutoffs: ctx.stats.null_move_cutoffs,
-        rfp_cutoffs: ctx.stats.rfp_cutoffs,
-        ffp_attempts: ctx.stats.ffp_attempts,
-        ffp_prunes: ctx.stats.ffp_prunes,
-        lmr_attempts: ctx.stats.lmr_attempts,
-        lmr_actual_reductions: ctx.stats.lmr_actual_reductions,
-        lmr_re_searches: ctx.stats.lmr_re_searches,
-        see_win_caps: ctx.stats.see_win_caps,
-        see_equal_caps: ctx.stats.see_equal_caps,
-        see_loss_caps: ctx.stats.see_loss_caps,
-        see_loss_searched: ctx.stats.see_loss_searched,
-        iid_triggers: ctx.stats.iid_triggers,
-        iid_successes: ctx.stats.iid_successes,
-        tb_hits: ctx.stats.tb_hits,
-        dropped_probe_events: 0,
-    });
+    probe!(
+        SearchSummary,
+        SearchSummaryEvent {
+            depth_completed: completed_depth as i32,
+            total_nodes: ctx.nodes,
+            qsearch_nodes: ctx.stats.qnodes,
+            time_ms: elapsed,
+            nodes_per_sec: ctx.nodes * 1000 / elapsed,
+            best_move: move_name(best_move),
+            best_score: best_score,
+            sel_depth: completed_depth as i32,
+            tt_probes: ctx.stats.tt_probes,
+            tt_hits: ctx.stats.tt_hits,
+            tt_cutoffs: ctx.stats.tt_cutoffs,
+            beta_cutoffs: ctx.stats.beta_cutoffs,
+            first_move_cutoffs: ctx.stats.first_move_cutoffs,
+            null_move_tries: ctx.stats.null_move_tries,
+            null_move_cutoffs: ctx.stats.null_move_cutoffs,
+            rfp_cutoffs: ctx.stats.rfp_cutoffs,
+            ffp_attempts: ctx.stats.ffp_attempts,
+            ffp_prunes: ctx.stats.ffp_prunes,
+            lmr_attempts: ctx.stats.lmr_attempts,
+            lmr_actual_reductions: ctx.stats.lmr_actual_reductions,
+            lmr_re_searches: ctx.stats.lmr_re_searches,
+            see_win_caps: ctx.stats.see_win_caps,
+            see_equal_caps: ctx.stats.see_equal_caps,
+            see_loss_caps: ctx.stats.see_loss_caps,
+            see_loss_searched: ctx.stats.see_loss_searched,
+            iid_triggers: ctx.stats.iid_triggers,
+            iid_successes: ctx.stats.iid_successes,
+            tb_hits: ctx.stats.tb_hits,
+            dropped_probe_events: 0,
+        }
+    );
 
     // Emit continuation history diagnostic probes (one per table)
-    probe!(ContHistory, ContHistoryEvent {
-        table: "cont1",
-        hit_rate: 0.0,
-        avg_score: 0.0,
-        max_abs: 0,
-        update_freq: ctx.stats.cont1_update_count,
-    });
-    probe!(ContHistory, ContHistoryEvent {
-        table: "cont2",
-        hit_rate: 0.0,
-        avg_score: 0.0,
-        max_abs: 0,
-        update_freq: ctx.stats.cont2_update_count,
-    });
-    probe!(ContHistory, ContHistoryEvent {
-        table: "cont4",
-        hit_rate: 0.0,
-        avg_score: 0.0,
-        max_abs: 0,
-        update_freq: ctx.stats.cont4_update_count,
-    });
-    probe!(ContHistory, ContHistoryEvent {
-        table: "cont6",
-        hit_rate: 0.0,
-        avg_score: 0.0,
-        max_abs: 0,
-        update_freq: ctx.stats.cont6_update_count,
-    });
+    probe!(
+        ContHistory,
+        ContHistoryEvent {
+            table: "cont1",
+            hit_rate: 0.0,
+            avg_score: 0.0,
+            max_abs: 0,
+            update_freq: ctx.stats.cont1_update_count,
+        }
+    );
+    probe!(
+        ContHistory,
+        ContHistoryEvent {
+            table: "cont2",
+            hit_rate: 0.0,
+            avg_score: 0.0,
+            max_abs: 0,
+            update_freq: ctx.stats.cont2_update_count,
+        }
+    );
+    probe!(
+        ContHistory,
+        ContHistoryEvent {
+            table: "cont4",
+            hit_rate: 0.0,
+            avg_score: 0.0,
+            max_abs: 0,
+            update_freq: ctx.stats.cont4_update_count,
+        }
+    );
+    probe!(
+        ContHistory,
+        ContHistoryEvent {
+            table: "cont6",
+            hit_rate: 0.0,
+            avg_score: 0.0,
+            max_abs: 0,
+            update_freq: ctx.stats.cont6_update_count,
+        }
+    );
 
     SearchResult {
         best_move,
@@ -323,30 +348,36 @@ pub(in crate::search) fn aspiration_search(
             return score;
         }
         if score <= alpha {
-            probe!(Aspiration, AspirationEvent {
-                depth: depth as i32,
-                initial_delta: ASPIRATION_DELTA,
-                window_low: alpha,
-                window_high: beta,
-                fail_high: false,
-                fail_low: true,
-                expansion_count: window_expand,
-                research_score: score,
-            });
+            probe!(
+                Aspiration,
+                AspirationEvent {
+                    depth: depth as i32,
+                    initial_delta: ASPIRATION_DELTA,
+                    window_low: alpha,
+                    window_high: beta,
+                    fail_high: false,
+                    fail_low: true,
+                    expansion_count: window_expand,
+                    research_score: score,
+                }
+            );
             beta = (alpha + beta) / 2;
             alpha = (alpha - delta * (1 << window_expand)).max(-SCORE_INF);
             window_expand += 1;
         } else if score >= beta {
-            probe!(Aspiration, AspirationEvent {
-                depth: depth as i32,
-                initial_delta: ASPIRATION_DELTA,
-                window_low: alpha,
-                window_high: beta,
-                fail_high: true,
-                fail_low: false,
-                expansion_count: window_expand,
-                research_score: score,
-            });
+            probe!(
+                Aspiration,
+                AspirationEvent {
+                    depth: depth as i32,
+                    initial_delta: ASPIRATION_DELTA,
+                    window_low: alpha,
+                    window_high: beta,
+                    fail_high: true,
+                    fail_low: false,
+                    expansion_count: window_expand,
+                    research_score: score,
+                }
+            );
             beta = (beta + delta * (1 << window_expand)).min(SCORE_INF);
             window_expand += 1;
         } else {

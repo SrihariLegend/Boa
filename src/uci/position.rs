@@ -22,17 +22,25 @@ pub(super) fn handle_position<'a>(
 
     // Board probe — one per position command
     let fen = board.to_fen();
-    probe!(Board, BoardEvent {
-        fen: if fen.len() > 64 { fen[..64].to_string() } else { fen },
-        phase: 0,
-        non_pawn_material: board.non_pawn_material(Color::White) + board.non_pawn_material(Color::Black),
-        mobile_pieces: 0,
-        open_files: 0,
-        in_check: board.is_in_check(board.side),
-        material_rule_score: 0,
-        halfmove_clock: board.halfmove as i32,
-        fullmove_number: board.fullmove as i32,
-    });
+    probe!(
+        Board,
+        BoardEvent {
+            fen: if fen.len() > 64 {
+                fen[..64].to_string()
+            } else {
+                fen
+            },
+            phase: 0,
+            non_pawn_material: board.non_pawn_material(Color::White)
+                + board.non_pawn_material(Color::Black),
+            mobile_pieces: 0,
+            open_files: 0,
+            in_check: board.is_in_check(board.side),
+            material_rule_score: 0,
+            halfmove_clock: board.halfmove as i32,
+            fullmove_number: board.fullmove as i32,
+        }
+    );
 
     for tok in tokens {
         let Some(m) = move_from_uci(tok) else {

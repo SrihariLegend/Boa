@@ -32,4 +32,3 @@ pub struct SyzygyOptions {
     pub probe_limit: usize,
     pub fifty_move_rule: bool,
 }
-

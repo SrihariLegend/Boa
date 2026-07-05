@@ -64,10 +64,7 @@ pub(in crate::search) fn static_exchange_eval(board: &Board, atk: &AttackTables,
     let target_bb = bb(to);
     while depth + 1 < gain.len() {
         let Some((attacker_sq, attacker_type)) =
-            least_valuable_attacker(
-                to, side, occ, &pieces, atk,
-                board.king_sq[side as usize],
-            )
+            least_valuable_attacker(to, side, occ, &pieces, atk, board.king_sq[side as usize])
         else {
             break;
         };
@@ -143,9 +140,7 @@ pub(in crate::search) fn least_valuable_attacker(
         // Fast path: first attacker is usually not pinned.
         // Only enter the slow loop if the first is actually pinned.
         let first_sq = bb_lsb(bb);
-        if pt == PieceType::King
-            || !is_pinned(king_sq, first_sq, color, occ, pieces, atk, target)
-        {
+        if pt == PieceType::King || !is_pinned(king_sq, first_sq, color, occ, pieces, atk, target) {
             return Some((first_sq, pt));
         }
 
@@ -199,7 +194,8 @@ pub(in crate::search) fn is_pinned(
     let tr = sq_rank(target_sq) as i8;
     if (same_rank && kr == tr)
         || (same_file && kf == tf)
-        || (same_diag && (kf - sf).abs() == (kr - sr).abs()
+        || (same_diag
+            && (kf - sf).abs() == (kr - sr).abs()
             && (kf - tf).abs() == (kr - tr).abs()
             && (kf - sf).signum() == (kf - tf).signum())
     {

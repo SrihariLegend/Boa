@@ -17,15 +17,19 @@ pub(in crate::search) fn should_ffp_prune(input: FfpInput) -> bool {
     let pruned = estimated_gain + FFP_BUFFER < required_gain;
 
     let rate = if input.depth <= 2 { 1 } else { 8 };
-    sample_probe!(rate, Ffp, FfpEvent {
-        depth: input.depth,
-        move_index: input.move_index as u32,
-        history_score: input.history_score,
-        computed_margin: estimated_gain,
-        required_gain: required_gain,
-        pruned: pruned,
-        is_cut_node: input.is_cut_node,
-    });
+    sample_probe!(
+        rate,
+        Ffp,
+        FfpEvent {
+            depth: input.depth,
+            move_index: input.move_index as u32,
+            history_score: input.history_score,
+            computed_margin: estimated_gain,
+            required_gain: required_gain,
+            pruned: pruned,
+            is_cut_node: input.is_cut_node,
+        }
+    );
 
     pruned
 }

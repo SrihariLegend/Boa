@@ -59,27 +59,32 @@ pub(in crate::search) fn non_pawn_hash(board: &Board, z: &Zobrist, color: Color)
 /// Compute the correction value for the current position.
 /// Called once per node before any pruning decision.
 /// The corrected eval = raw_eval + correction / CORRHIST_DIVISOR.
-pub(in crate::search) fn compute_correction(
-    ctx: &SearchContext,
-    board: &Board,
-    ply: usize,
-) -> i32 {
+pub(in crate::search) fn compute_correction(ctx: &SearchContext, board: &Board, ply: usize) -> i32 {
     let stm = board.side as usize;
     let pawn_idx = (board.pawn_hash as usize) % PAWN_CORR_SIZE;
 
     // Use cached non-pawn hashes if available (avoid recomputing twice per node).
     let (np_idx_w, np_idx_b) = if ply < MAX_PLY {
         if let Some((hw, hb)) = ctx.stack[ply].non_pawn_hashes {
-            (hw as usize % NONPAWN_CORR_SIZE, hb as usize % NONPAWN_CORR_SIZE)
+            (
+                hw as usize % NONPAWN_CORR_SIZE,
+                hb as usize % NONPAWN_CORR_SIZE,
+            )
         } else {
             let np_hash_w = non_pawn_hash(board, ctx.z, Color::White);
             let np_hash_b = non_pawn_hash(board, ctx.z, Color::Black);
-            (np_hash_w as usize % NONPAWN_CORR_SIZE, np_hash_b as usize % NONPAWN_CORR_SIZE)
+            (
+                np_hash_w as usize % NONPAWN_CORR_SIZE,
+                np_hash_b as usize % NONPAWN_CORR_SIZE,
+            )
         }
     } else {
         let np_hash_w = non_pawn_hash(board, ctx.z, Color::White);
         let np_hash_b = non_pawn_hash(board, ctx.z, Color::Black);
-        (np_hash_w as usize % NONPAWN_CORR_SIZE, np_hash_b as usize % NONPAWN_CORR_SIZE)
+        (
+            np_hash_w as usize % NONPAWN_CORR_SIZE,
+            np_hash_b as usize % NONPAWN_CORR_SIZE,
+        )
     };
 
     let mut corr = CORR_W1 * ctx.pawn_corr[stm][pawn_idx]
@@ -87,26 +92,13 @@ pub(in crate::search) fn compute_correction(
         + CORR_W2 * ctx.nonpawn_corr_b[stm][np_idx_b];
 
     if ply >= 2 {
-        if let (Some(prev1), Some(prev2)) = (
-            ctx.stack[ply - 1].cont_entry,
-            ctx.stack[ply - 2].cont_entry,
-        ) {
+        if let (Some(prev1), Some(prev2)) =
+            (ctx.stack[ply - 1].cont_entry, ctx.stack[ply - 2].cont_entry)
+        {
             let cont_idx = prev1.0 * 64 + prev1.1;
             let cont2_idx = prev2.0 * 64 + prev2.1;
             if cont_idx < CONT_CORR_SIZE && cont2_idx < CONT_CORR_SIZE {
                 corr += CORR_W3 * ctx.cont_corr[stm][cont_idx][cont2_idx];
-            }
-        }
-    }
-
-    if ply >= 4 {
-        if let Some(prev4) = ctx.stack[ply - 4].cont_entry {
-            let cont_idx = prev4.0 * 64 + prev4.1;
-            if let Some(prev2) = ctx.stack[ply - 2].cont_entry {
-                let cont2_idx = prev2.0 * 64 + prev2.1;
-                if cont_idx < CONT_CORR_SIZE && cont2_idx < CONT_CORR_SIZE {
-                    corr += CORR_W3 * ctx.cont_corr[stm][cont_idx][cont2_idx];
-                }
             }
         }
     }
@@ -163,42 +155,47 @@ pub(in crate::search) fn update_correction(
     // Pawn correction
     {
         let old = ctx.pawn_corr[stm][pawn_idx];
-        ctx.pawn_corr[stm][pawn_idx] =
-            old + bonus - (old * bonus.abs()) / CORRHIST_GRAVITY;
+        ctx.pawn_corr[stm][pawn_idx] = old + bonus - (old * bonus.abs()) / CORRHIST_GRAVITY;
     }
 
     // Non-pawn correction (both colors) — use cached hashes if available.
     let (np_idx_w, np_idx_b) = if ply < MAX_PLY {
         if let Some((hw, hb)) = ctx.stack[ply].non_pawn_hashes {
-            (hw as usize % NONPAWN_CORR_SIZE, hb as usize % NONPAWN_CORR_SIZE)
+            (
+                hw as usize % NONPAWN_CORR_SIZE,
+                hb as usize % NONPAWN_CORR_SIZE,
+            )
         } else {
             let np_hash_w = non_pawn_hash(board, ctx.z, Color::White);
             let np_hash_b = non_pawn_hash(board, ctx.z, Color::Black);
-            (np_hash_w as usize % NONPAWN_CORR_SIZE, np_hash_b as usize % NONPAWN_CORR_SIZE)
+            (
+                np_hash_w as usize % NONPAWN_CORR_SIZE,
+                np_hash_b as usize % NONPAWN_CORR_SIZE,
+            )
         }
     } else {
         let np_hash_w = non_pawn_hash(board, ctx.z, Color::White);
         let np_hash_b = non_pawn_hash(board, ctx.z, Color::Black);
-        (np_hash_w as usize % NONPAWN_CORR_SIZE, np_hash_b as usize % NONPAWN_CORR_SIZE)
+        (
+            np_hash_w as usize % NONPAWN_CORR_SIZE,
+            np_hash_b as usize % NONPAWN_CORR_SIZE,
+        )
     };
 
     {
         let old = ctx.nonpawn_corr_w[stm][np_idx_w];
-        ctx.nonpawn_corr_w[stm][np_idx_w] =
-            old + bonus - (old * bonus.abs()) / CORRHIST_GRAVITY;
+        ctx.nonpawn_corr_w[stm][np_idx_w] = old + bonus - (old * bonus.abs()) / CORRHIST_GRAVITY;
     }
     {
         let old = ctx.nonpawn_corr_b[stm][np_idx_b];
-        ctx.nonpawn_corr_b[stm][np_idx_b] =
-            old + bonus - (old * bonus.abs()) / CORRHIST_GRAVITY;
+        ctx.nonpawn_corr_b[stm][np_idx_b] = old + bonus - (old * bonus.abs()) / CORRHIST_GRAVITY;
     }
 
     // Continuation correction: (prev1, prev2) pair
     if ply >= 2 {
-        if let (Some(prev1), Some(prev2)) = (
-            ctx.stack[ply - 1].cont_entry,
-            ctx.stack[ply - 2].cont_entry,
-        ) {
+        if let (Some(prev1), Some(prev2)) =
+            (ctx.stack[ply - 1].cont_entry, ctx.stack[ply - 2].cont_entry)
+        {
             let cont_idx = prev1.0 * 64 + prev1.1;
             let cont2_idx = prev2.0 * 64 + prev2.1;
             if cont_idx < CONT_CORR_SIZE && cont2_idx < CONT_CORR_SIZE {

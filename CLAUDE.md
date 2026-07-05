@@ -1,8 +1,7 @@
 # Boa — Claude Code project guide
 
 Boa is a UCI chess engine written in Rust.  Bitboard move generation,
-classical tapered evaluation, alpha-beta search with learned LMR criticality
-guard trained on shadow counterfactual probes.
+classical tapered evaluation, and alpha-beta search.
 
 ## Token-efficient tool use
 
@@ -31,10 +30,9 @@ small and the user's cost low.
 
 ```
 src/              — engine source (main, uci, board, movegen, search, eval, tt)
-  search/pruning/ — FFP, RFP, LMR (classical + learned criticality guard)
-tools/            — training pipeline, game runner, opening book
+  search/pruning/ — FFP, RFP, LMR
+tools/            — testing pipeline, game runner, opening book
 analysis/         — generated data (not committed)
-criticality.coeffs — tracked reference copy of current coefficients (engine loads from target/release/)
 ```
 
 ## Build, test, and development
@@ -47,41 +45,15 @@ cargo check              # fast compile check, no binary
 
 Start the engine: `./target/release/boa` — it speaks UCI.
 
-## Criticality training pipeline
-
-**Prerequisites:** Python 3 and Node.js (the game runner `criticality_dataset.mjs`
-requires Node).  One script drives everything:
-
-```sh
-python3 tools/train.py all --games 200           # collect + train + write .coeffs
-python3 tools/train.py collect --games 200       # self-play games only
-python3 tools/train.py train --data <dir>        # train from existing data
-python3 tools/train.py check --data <dir>        # probe health summary
-```
-
-The model is always trained on **shadow-only** (`counterfactual_probe`) LMR
-rows, always with a **P97** threshold.  Coefficients are written to
-`target/release/criticality.coeffs` and loaded by the engine at startup.
-Previous coefficients are archived as commented history below the `---`
-separator — never parsed, never lost.
-
-Full docs: `tools/CRITICALITY_GUIDE.md`.
-
 ## Key engineering lessons
 
-- **ML approach for FFP/RFP did not work.**  A unified ML model across the
-  pruning subsystem failed to gain Elo.  FFP and RFP stay classical
-  (simple margin formulas).  Do not reintroduce learned models for these
-  without strong SPRT evidence.
-- **Shadow LMR P97 works.**  The logistic criticality guard trained on
-  counterfactual probes is the one ML application that passed.  It is narrow
-  (one-ply protection for ~3% of reduced moves) and data-driven (trained on
-  actual "what-if" search results, not game outcomes).
-- **Counterfactual probes beat observed labels.**  Shadow probes fire
-  randomly at a fixed rate — they are unbiased.  Observed-research labels
-  (TT probe scores during normal search) are biased because the engine only
-  probes moves it already thinks are interesting.  Always train on shadow
-  data.
+- **ML approach for pruning did not work.**  A unified ML model across the
+  pruning subsystem (FFP, RFP, and LMR criticality) failed to gain Elo or was
+  ultimately stripped in favor of classical heuristics. Pruning remains classical
+  (simple margin formulas and log-based reductions).  Do not reintroduce learned models
+  for these without strong SPRT evidence.
+- **Correction History works.** Dynamically learning systematic static evaluation biases
+  using non-pawn Zobrist hashes at runtime provides a robust way to fix eval holes.
 - **SPRT everything.**  No eval or search change ships without a passing
   SPRT at fast time control (1+0.01 or similar).  Internal test metrics
   (AUC, RMSE, Pearson) are diagnostics — they do not substitute for
@@ -111,7 +83,7 @@ Full spec: `docs/superpowers/specs/2026-06-29-probe-system-design.md`
 
 ## Commit conventions
 
-- Short imperative subjects: `Fix search edge cases`, `Add criticality model`.
+- Short imperative subjects: `Fix search edge cases`, `Add correction history`.
 - Engine behaviour changes: include SPRT result or note that no match was run.
 - Tooling changes: include the command shape and output path changes.
 - End commit messages with `Co-Authored-By: Claude <noreply@anthropic.com>`.

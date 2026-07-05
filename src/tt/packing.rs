@@ -9,9 +9,7 @@ pub(super) fn pack_ctrl(key: u32, depth: i8, bound: Bound, age: u8) -> u64 {
 /// Pack score (i32), best move (u16), and raw_eval (i16) into a 64-bit word.
 /// Layout: bits 63-48 = raw_eval, bits 47-32 = best_move, bits 31-0 = score
 pub(super) fn pack_data(score: Score, best: Move, raw_eval: i16) -> u64 {
-    (score as u32 as u64)
-        | ((best as u64) << 32)
-        | ((raw_eval as u16 as u64) << 48)
+    (score as u32 as u64) | ((best as u64) << 32) | ((raw_eval as u16 as u64) << 48)
 }
 
 pub(super) fn unpack_entry(ctrl: u64, data: u64) -> TtEntry {

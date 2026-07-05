@@ -18,13 +18,22 @@ pub(in crate::search) const ASPIRATION_MAX_EXPANSIONS: u32 = 4;
 // Widen pruning margins by |corr| * weight / 512 to be safer.
 // Override with env vars: BOA_CORR_W_RFP, BOA_CORR_W_NMP, BOA_CORR_W_FFP.
 pub(in crate::search) fn corr_w_rfp() -> i32 {
-    std::env::var("BOA_CORR_W_RFP").ok().and_then(|v| v.parse().ok()).unwrap_or(2)
+    std::env::var("BOA_CORR_W_RFP")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(2)
 }
 pub(in crate::search) fn corr_w_nmp() -> i32 {
-    std::env::var("BOA_CORR_W_NMP").ok().and_then(|v| v.parse().ok()).unwrap_or(1)
+    std::env::var("BOA_CORR_W_NMP")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(1)
 }
 pub(in crate::search) fn corr_w_ffp() -> i32 {
-    std::env::var("BOA_CORR_W_FFP").ok().and_then(|v| v.parse().ok()).unwrap_or(1)
+    std::env::var("BOA_CORR_W_FFP")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(1)
 }
 
 // ---- RFP (Reverse Futility Pruning) ----

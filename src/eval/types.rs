@@ -97,28 +97,32 @@ pub fn evaluate_breakdown(board: &Board, ctx: &EvalContext) -> EvalBreakdown {
         side_to_move_score: score * side_sign + tempo,
     };
 
-    sample_probe!(16, Eval, EvalEvent {
-        phase: phase,
-        material_mg: mat_mg,
-        material_eg: mat_eg,
-        material_cp: result.material_cp,
-        pst_mg: pst_mg,
-        pst_eg: pst_eg,
-        pst_cp: result.pst_cp,
-        mobility_mg: mob_mg,
-        mobility_eg: mob_eg,
-        mobility_cp: result.mobility_cp,
-        mobility_white: mobility_white,
-        mobility_black: mobility_black,
-        pawn_structure_mg: pawn_mg,
-        pawn_structure_eg: pawn_eg,
-        pawn_structure_cp: result.pawn_structure_cp,
-        king_safety_mg: ks_mg,
-        king_safety_eg: ks_eg,
-        king_safety_cp: result.king_safety_cp,
-        white_score: score,
-        side_to_move_score: result.side_to_move_score,
-    });
+    sample_probe!(
+        16,
+        Eval,
+        EvalEvent {
+            phase: phase,
+            material_mg: mat_mg,
+            material_eg: mat_eg,
+            material_cp: result.material_cp,
+            pst_mg: pst_mg,
+            pst_eg: pst_eg,
+            pst_cp: result.pst_cp,
+            mobility_mg: mob_mg,
+            mobility_eg: mob_eg,
+            mobility_cp: result.mobility_cp,
+            mobility_white: mobility_white,
+            mobility_black: mobility_black,
+            pawn_structure_mg: pawn_mg,
+            pawn_structure_eg: pawn_eg,
+            pawn_structure_cp: result.pawn_structure_cp,
+            king_safety_mg: ks_mg,
+            king_safety_eg: ks_eg,
+            king_safety_cp: result.king_safety_cp,
+            white_score: score,
+            side_to_move_score: result.side_to_move_score,
+        }
+    );
 
     result
 }
