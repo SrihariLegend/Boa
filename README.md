@@ -2,8 +2,7 @@
 
 Boa is a UCI chess engine written in Rust. It uses bitboard move generation,
 classical tapered evaluation, and alpha-beta search with standard pruning and
-move-ordering heuristics.  Late-move reductions are guarded by a learned
-logistic criticality model trained on shadow counterfactual probes.
+move-ordering heuristics.
 
 ## Build
 
@@ -50,46 +49,6 @@ Supported UCI options:
 
 Run `uci` to print the authoritative option list for the current binary.
 
-## Learned LMR Criticality
-
-Boa's late-move reductions use a learned logistic guard.  Before reducing a
-quiet move the engine computes a criticality score from 27 positional and
-search-state features.  Moves whose score exceeds the P97 threshold get one
-ply of reduction protection.
-
-The model is trained on **shadow counterfactual probes**: during self-play the
-engine occasionally searches a reduced move to full depth to see whether the
-reduction changed the score.  Those outcomes become training labels.
-
-### Runtime coefficients
-
-At startup the engine loads `criticality.coeffs` from the same directory as
-the executable.  If the file is missing or malformed it falls back to the
-hardcoded coefficients in `src/search/constants.rs`.
-
-The `.coeffs` format uses plain `key = value` lines.  Everything below the
-`---` separator is commented-out version history — the engine never parses it.
-
-### Training pipeline
-
-One script handles everything:
-
-```sh
-# Full pipeline: collect self-play games, train model, write .coeffs
-python3 tools/train.py all --games 200
-
-# Or step by step:
-python3 tools/train.py collect --games 200
-python3 tools/train.py train --data analysis/criticality/<run>/raw
-
-# Probe health check:
-python3 tools/train.py check --data analysis/criticality/<run>/raw
-```
-
-Requirements: Python 3 with numpy and scikit-learn, Node.js, cutechess-cli.
-
-Full documentation: `tools/CRITICALITY_GUIDE.md`.
-
 ## Development
 
 ```sh
@@ -113,12 +72,10 @@ uploads a raw `boa-<tag>-windows-x86_64.exe`, a zip archive, and
 
 - `src/` — engine source.
 - `games/` — archived reference games.
-- `tools/` — training pipeline, game runner, opening book, docs.
-- `criticality.coeffs` — current LMR criticality coefficients (loaded at runtime).
-- `EXPERIMENTS.md` — scratchpad of tried engine ideas, results, and rejected code paths.
+- `tools/` — testing pipeline, game runner, opening book, docs.
+- `docs/` — design documents, experiments and specifications.
 
 ## Tooling Docs
 
-- `tools/CRITICALITY_GUIDE.md` — how to use the training pipeline, add/remove features.
 - `tools/README.md` — match-running and tool overview.
 - `tools/AGENT_GUIDE.md` — non-interactive workflows and reporting rules for coding agents.

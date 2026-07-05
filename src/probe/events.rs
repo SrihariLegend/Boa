@@ -620,15 +620,15 @@ pub struct MateDistanceEvent {
 #[cfg_attr(feature = "probes", derive(Serialize))]
 pub struct ContHistoryEvent {
     #[cfg_attr(feature = "probes", serde(rename = "tb"))]
-    pub table: &'static str,       // "cont1", "cont2", "cont4", "cont6"
+    pub table: &'static str, // "cont1", "cont2", "cont4", "cont6"
     #[cfg_attr(feature = "probes", serde(rename = "hr"))]
-    pub hit_rate: f64,             // fraction of quiet moves with non-zero score
+    pub hit_rate: f64, // fraction of quiet moves with non-zero score
     #[cfg_attr(feature = "probes", serde(rename = "as"))]
-    pub avg_score: f64,            // average contribution to move score (abs)
+    pub avg_score: f64, // average contribution to move score (abs)
     #[cfg_attr(feature = "probes", serde(rename = "mx"))]
-    pub max_abs: i32,              // max absolute value in table
+    pub max_abs: i32, // max absolute value in table
     #[cfg_attr(feature = "probes", serde(rename = "uf"))]
-    pub update_freq: u64,          // bonus+malus updates this search
+    pub update_freq: u64, // bonus+malus updates this search
 }
 
 // ============================================================
@@ -637,19 +637,19 @@ pub struct ContHistoryEvent {
 #[cfg_attr(feature = "probes", derive(Serialize))]
 pub struct CorrectionHistoryEvent {
     #[cfg_attr(feature = "probes", serde(rename = "cv"))]
-    pub correction_value: i32,       // total correction (in corr units; /512 → cp)
+    pub correction_value: i32, // total correction (in corr units; /512 → cp)
     #[cfg_attr(feature = "probes", serde(rename = "re"))]
-    pub raw_eval: i32,               // raw static eval before correction
+    pub raw_eval: i32, // raw static eval before correction
     #[cfg_attr(feature = "probes", serde(rename = "ce"))]
-    pub corrected_eval: i32,         // eval after correction
+    pub corrected_eval: i32, // eval after correction
     #[cfg_attr(feature = "probes", serde(rename = "df"))]
-    pub diff: i32,                   // best_score - raw_eval (the correction update)
+    pub diff: i32, // best_score - raw_eval (the correction update)
     #[cfg_attr(feature = "probes", serde(rename = "pc"))]
-    pub pawn_corr: i32,              // pawn correction component
+    pub pawn_corr: i32, // pawn correction component
     #[cfg_attr(feature = "probes", serde(rename = "np"))]
-    pub nonpawn_corr: i32,           // non-pawn correction component
+    pub nonpawn_corr: i32, // non-pawn correction component
     #[cfg_attr(feature = "probes", serde(rename = "cc"))]
-    pub cont_corr: i32,              // continuation correction component
+    pub cont_corr: i32, // continuation correction component
     #[cfg_attr(feature = "probes", serde(rename = "pl"))]
     pub ply: u32,
 }

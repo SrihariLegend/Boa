@@ -173,7 +173,7 @@ pub(in crate::search) fn history_delta_obsidian_formula() {
     assert_eq!(history_delta(2, true), 175 * 3 + 15); // 540
     assert_eq!(history_delta(5, false), 175 * 5 + 15); // 890
     assert_eq!(history_delta(5, true), 175 * 6 + 15); // 1065
-    // Cap at 1409
+                                                      // Cap at 1409
     assert_eq!(history_delta(8, true), 1409); // 175*9+15 = 1590, capped
     assert_eq!(history_delta(10, true), 1409); // well above cap
 }
@@ -213,12 +213,14 @@ pub(in crate::search) fn cont_history_1ply_updates_on_beta_cutoff() {
 
     // Simulate beta cutoff at ply 1 — should update cont1[white_pt][white_to][black_pt][black_to]
     handle_beta_cutoff(
-        &mut ctx, &board, black_move, 1, 6, false,
-        100, 50, // best_score=100, beta=50
+        &mut ctx, &board, black_move, 1, 6, false, 100, 50, // best_score=100, beta=50
     );
 
     let entry = ctx.cont1[white_pt][white_to][black_pt][black_to];
-    assert!(entry > -552, "cont history should increase from -552 on beta cutoff, got {entry}");
+    assert!(
+        entry > -552,
+        "cont history should increase from -552 on beta cutoff, got {entry}"
+    );
 
     board.unmake_move(white_move, &undo, &z);
 }
@@ -258,16 +260,16 @@ pub(in crate::search) fn cont_history_2ply_updates_with_half_bonus() {
     let wm2_pt = piece_type(board.sq_piece[move_from(wm2) as usize]) as usize;
     let wm2_to = move_to(wm2) as usize;
 
-    handle_beta_cutoff(
-        &mut ctx, &board, wm2, 2, 6, false,
-        100, 50,
-    );
+    handle_beta_cutoff(&mut ctx, &board, wm2, 2, 6, false, 100, 50);
 
     // cont2 should be updated: cont2[Pawn][28][Knight][f3]
     // (reads stack[ply-2].cont_entry = stack[0].cont_entry)
     let pp = PieceType::Pawn as usize;
     let entry = ctx.cont2[pp][28][wm2_pt][wm2_to];
-    assert!(entry > -552, "cont2 should increase from -552 on beta cutoff, got {entry}");
+    assert!(
+        entry > -552,
+        "cont2 should increase from -552 on beta cutoff, got {entry}"
+    );
 
     board.unmake_move(bm, &undo1, &z);
     board.unmake_move(wm, &undo0, &z);
@@ -302,13 +304,12 @@ pub(in crate::search) fn pawn_history_updates_on_beta_cutoff() {
     let pawn_idx = (board.pawn_hash & 1023) as usize;
     assert_eq!(ctx.pawn_history[pawn_idx][w_pt][w_to], 0);
 
-    handle_beta_cutoff(
-        &mut ctx, &board, white_move, 1, 6, false,
-        100, 50,
-    );
+    handle_beta_cutoff(&mut ctx, &board, white_move, 1, 6, false, 100, 50);
 
-    assert!(ctx.pawn_history[pawn_idx][w_pt][w_to] > 0,
-        "pawn history should increase on beta cutoff");
+    assert!(
+        ctx.pawn_history[pawn_idx][w_pt][w_to] > 0,
+        "pawn history should increase on beta cutoff"
+    );
 }
 
 #[test]
@@ -320,12 +321,16 @@ pub(in crate::search) fn pawn_hash_changes_after_pawn_move() {
 
     let wm = generated_move(&board, &atk, "e2e4");
     let undo = board.make_move(wm, &z);
-    assert_ne!(board.pawn_hash, hash_before,
-        "pawn hash should change after a pawn move");
+    assert_ne!(
+        board.pawn_hash, hash_before,
+        "pawn hash should change after a pawn move"
+    );
 
     board.unmake_move(wm, &undo, &z);
-    assert_eq!(board.pawn_hash, hash_before,
-        "pawn hash should be restored after unmake");
+    assert_eq!(
+        board.pawn_hash, hash_before,
+        "pawn hash should be restored after unmake"
+    );
 }
 
 #[test]
@@ -358,7 +363,10 @@ pub(in crate::search) fn correction_history_updates_after_search() {
     update_correction(&mut ctx, &board, 6, best_score, raw_eval, 1);
 
     let corr = compute_correction(&ctx, &board, 1);
-    assert!(corr > 0, "correction should be positive after positive diff, got {corr}");
+    assert!(
+        corr > 0,
+        "correction should be positive after positive diff, got {corr}"
+    );
 }
 
 #[test]

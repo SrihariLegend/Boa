@@ -56,9 +56,7 @@ pub(in crate::search) use quiescence::*;
 pub(in crate::search) use see::*;
 pub(in crate::search) use stats::*;
 pub(in crate::search) use tt_cutoff::*;
-pub(in crate::search) use types::{
-    LmrInput, LmrReduction, SearchNode,
-};
+pub(in crate::search) use types::{LmrInput, LmrReduction, SearchNode};
 
 pub use bench::bench;
 pub use context::SearchContext;
@@ -79,18 +77,36 @@ pub fn quick_search(
     use std::sync::atomic::AtomicBool;
 
     let stop = AtomicBool::new(false);
-    let limits = Limits { max_depth: depth as u32, ..Default::default() };
+    let limits = Limits {
+        max_depth: depth as u32,
+        ..Default::default()
+    };
 
     let mut ctx = SearchContext::new(
-        atk, z, tt, limits, Vec::new(), 0,
-        options.clone(), None, &stop, 0, 0,
+        atk,
+        z,
+        tt,
+        limits,
+        Vec::new(),
+        0,
+        options.clone(),
+        None,
+        &stop,
+        0,
+        0,
     );
 
     let mut pv = Vec::new();
     alpha_beta(
         board,
         &mut ctx,
-        SearchNode { alpha: -SCORE_INF, beta: SCORE_INF, depth, ply: 0, is_pv: true },
+        SearchNode {
+            alpha: -SCORE_INF,
+            beta: SCORE_INF,
+            depth,
+            ply: 0,
+            is_pv: true,
+        },
         &mut pv,
     )
 }

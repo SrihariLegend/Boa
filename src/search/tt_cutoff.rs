@@ -36,15 +36,18 @@ pub(in crate::search) fn try_tt_cutoff(
         Bound::Upper => "upper",
         _ => "none",
     };
-    probe!(TtCutoff, TtCutoffEvent {
-        depth: depth,
-        entry_type: et,
-        entry_depth: entry.depth,
-        depth_sufficient: entry.depth >= depth as i8,
-        cutoff_score: s,
-        alpha: alpha,
-        beta: beta,
-    });
+    probe!(
+        TtCutoff,
+        TtCutoffEvent {
+            depth: depth,
+            entry_type: et,
+            entry_depth: entry.depth,
+            depth_sufficient: entry.depth >= depth as i8,
+            cutoff_score: s,
+            alpha: alpha,
+            beta: beta,
+        }
+    );
     if cutoff {
         ctx.stats.tt_cutoffs += 1;
         return (tt_move, Some(s), Some(tt_raw_eval));

@@ -31,3 +31,4 @@ repomix-output.xml
 /match_results/
 /training_data/
 logs/
+.venv/

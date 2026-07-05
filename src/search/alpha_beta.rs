@@ -18,6 +18,17 @@ pub(in crate::search) fn alpha_beta(
     if ctx.should_stop() {
         return 0;
     }
+
+    if ply >= MAX_PLY {
+        return evaluate(
+            board,
+            &EvalContext {
+                atk: ctx.atk,
+                options: &ctx.options,
+            },
+        );
+    }
+
     ctx.nodes += 1;
     ctx.stats.nodes += 1;
 
@@ -27,24 +38,34 @@ pub(in crate::search) fn alpha_beta(
             // Contempt: positive from root side's view (root side avoids draws)
             let sign = if board.side == ctx.root_color { 1 } else { -1 };
             let score = SCORE_DRAW - ctx.contempt * sign;
-            probe!(DrawDetection, DrawEvent {
-                draw_type: if board.halfmove >= 100 { "fifty_move" } else { "insufficient_material" },
-                ply: ply as u32,
-                contempt_applied: ctx.contempt * sign,
-                score_returned: score,
-            });
+            probe!(
+                DrawDetection,
+                DrawEvent {
+                    draw_type: if board.halfmove >= 100 {
+                        "fifty_move"
+                    } else {
+                        "insufficient_material"
+                    },
+                    ply: ply as u32,
+                    contempt_applied: ctx.contempt * sign,
+                    score_returned: score,
+                }
+            );
             return score;
         }
         // Repetition detection — check against ancestors (not self)
         if ctx.is_repetition(board) {
             let sign = if board.side == ctx.root_color { 1 } else { -1 };
             let score = SCORE_DRAW - ctx.contempt * sign;
-            probe!(DrawDetection, DrawEvent {
-                draw_type: "repetition",
-                ply: ply as u32,
-                contempt_applied: ctx.contempt * sign,
-                score_returned: score,
-            });
+            probe!(
+                DrawDetection,
+                DrawEvent {
+                    draw_type: "repetition",
+                    ply: ply as u32,
+                    contempt_applied: ctx.contempt * sign,
+                    score_returned: score,
+                }
+            );
             return score;
         }
     }
@@ -65,25 +86,31 @@ pub(in crate::search) fn alpha_beta(
     let mut alpha = alpha.max(-(SCORE_MATE - ply as Score));
     let beta_md = beta.min(SCORE_MATE - ply as Score - 1);
     if alpha >= beta_md {
-        probe!(MateDistance, MateDistanceEvent {
+        probe!(
+            MateDistance,
+            MateDistanceEvent {
+                ply: ply as u32,
+                original_alpha: oa,
+                clamped_alpha: alpha,
+                original_beta: ob,
+                clamped_beta: beta_md,
+                pruned: true,
+            }
+        );
+        ctx.history_hashes.pop();
+        return alpha;
+    }
+    probe!(
+        MateDistance,
+        MateDistanceEvent {
             ply: ply as u32,
             original_alpha: oa,
             clamped_alpha: alpha,
             original_beta: ob,
             clamped_beta: beta_md,
-            pruned: true,
-        });
-        ctx.history_hashes.pop();
-        return alpha;
-    }
-    probe!(MateDistance, MateDistanceEvent {
-        ply: ply as u32,
-        original_alpha: oa,
-        clamped_alpha: alpha,
-        original_beta: ob,
-        clamped_beta: beta_md,
-        pruned: false,
-    });
+            pruned: false,
+        }
+    );
     let beta = beta_md;
     let is_cut_node = !is_pv && beta == alpha + 1;
     let original_alpha = alpha;
@@ -146,19 +173,25 @@ pub(in crate::search) fn alpha_beta(
         if let Some(entry) = ctx.tt.probe(board.hash) {
             tt_move = entry.best;
             ctx.stats.iid_successes += 1;
-            probe!(Iid, IidEvent {
-                depth: depth,
-                reduced_depth: iid_depth,
-                tt_move_found_after_iid: true,
-                iid_search_score: 0,
-            });
+            probe!(
+                Iid,
+                IidEvent {
+                    depth: depth,
+                    reduced_depth: iid_depth,
+                    tt_move_found_after_iid: true,
+                    iid_search_score: 0,
+                }
+            );
         } else {
-            probe!(Iid, IidEvent {
-                depth: depth,
-                reduced_depth: iid_depth,
-                tt_move_found_after_iid: false,
-                iid_search_score: 0,
-            });
+            probe!(
+                Iid,
+                IidEvent {
+                    depth: depth,
+                    reduced_depth: iid_depth,
+                    tt_move_found_after_iid: false,
+                    iid_search_score: 0,
+                }
+            );
         }
     }
 
@@ -167,10 +200,22 @@ pub(in crate::search) fn alpha_beta(
         if re != 0 {
             re as Score
         } else {
-            evaluate(board, &EvalContext { atk: ctx.atk, options: &ctx.options })
+            evaluate(
+                board,
+                &EvalContext {
+                    atk: ctx.atk,
+                    options: &ctx.options,
+                },
+            )
         }
     } else {
-        evaluate(board, &EvalContext { atk: ctx.atk, options: &ctx.options })
+        evaluate(
+            board,
+            &EvalContext {
+                atk: ctx.atk,
+                options: &ctx.options,
+            },
+        )
     };
     // Compute and cache non-pawn hashes for correction history.
     if ply < MAX_PLY {
@@ -201,7 +246,8 @@ pub(in crate::search) fn alpha_beta(
             return rfp_score;
         }
 
-        if let Some(null_score) = try_null_move(board, ctx, beta, depth, ply, static_eval, corr_val) {
+        if let Some(null_score) = try_null_move(board, ctx, beta, depth, ply, static_eval, corr_val)
+        {
             ctx.history_hashes.pop();
             return null_score;
         }
@@ -210,14 +256,17 @@ pub(in crate::search) fn alpha_beta(
     // Generate and order moves
     let mut list = gen_moves(board, ctx.atk);
 
-    probe!(Movegen, MovegenEvent {
-        total_count: list.count as u32,
-        quiet_count: 0,
-        capture_count: 0,
-        evasion_count: 0,
-        promotion_count: 0,
-        in_check: board.is_in_check(board.side),
-    });
+    probe!(
+        Movegen,
+        MovegenEvent {
+            total_count: list.count as u32,
+            quiet_count: 0,
+            capture_count: 0,
+            evasion_count: 0,
+            promotion_count: 0,
+            in_check: board.is_in_check(board.side),
+        }
+    );
 
     score_moves(board, ctx, &mut list, tt_move, ply);
     // Lazy SMP: non-primary workers search different root moves first.
@@ -301,10 +350,7 @@ pub(in crate::search) fn alpha_beta(
         // sibling branch.
         if ply < MAX_PLY {
             if moving_piece != PIECE_NONE && !is_capture && !is_promo {
-                ctx.stack[ply].cont_entry = Some((
-                    piece_type(moving_piece) as usize,
-                    to as usize,
-                ));
+                ctx.stack[ply].cont_entry = Some((piece_type(moving_piece) as usize, to as usize));
             } else {
                 ctx.stack[ply].cont_entry = None;
             }
@@ -451,7 +497,8 @@ pub(in crate::search) fn alpha_beta(
                 let to = move_to(m) as usize;
                 let old = ctx.pawn_history[pawn_idx][pt][to];
                 let malus = history_malus(depth);
-                ctx.pawn_history[pawn_idx][pt][to] = old + malus - (old * malus.abs()) / HISTORY_GRAVITY;
+                ctx.pawn_history[pawn_idx][pt][to] =
+                    old + malus - (old * malus.abs()) / HISTORY_GRAVITY;
             }
             // Apply malus to continuation history for failed quiet moves
             if ply > 0 && ply < MAX_PLY {
@@ -460,7 +507,8 @@ pub(in crate::search) fn alpha_beta(
                     let to_idx = move_to(m) as usize;
                     let old = ctx.cont1[pp][pto][pt][to_idx];
                     let malus = history_malus(depth);
-                    ctx.cont1[pp][pto][pt][to_idx] = old + malus - (old * malus.abs()) / HISTORY_GRAVITY;
+                    ctx.cont1[pp][pto][pt][to_idx] =
+                        old + malus - (old * malus.abs()) / HISTORY_GRAVITY;
                 }
             }
             // Cont2 malus with half magnitude
@@ -470,7 +518,8 @@ pub(in crate::search) fn alpha_beta(
                     let to_idx = move_to(m) as usize;
                     let old = ctx.cont2[pp2][pto2][pt][to_idx];
                     let half_malus = history_malus(depth) / 2;
-                    ctx.cont2[pp2][pto2][pt][to_idx] = old + half_malus - (old * half_malus.abs()) / HISTORY_GRAVITY;
+                    ctx.cont2[pp2][pto2][pt][to_idx] =
+                        old + half_malus - (old * half_malus.abs()) / HISTORY_GRAVITY;
                 }
             }
             // Cont4 malus with quarter magnitude
@@ -480,7 +529,8 @@ pub(in crate::search) fn alpha_beta(
                     let to_idx = move_to(m) as usize;
                     let old = ctx.cont4[pp4][pto4][pt][to_idx];
                     let quarter_malus = history_malus(depth) / 4;
-                    ctx.cont4[pp4][pto4][pt][to_idx] = old + quarter_malus - (old * quarter_malus.abs()) / HISTORY_GRAVITY;
+                    ctx.cont4[pp4][pto4][pt][to_idx] =
+                        old + quarter_malus - (old * quarter_malus.abs()) / HISTORY_GRAVITY;
                 }
             }
             // Cont6 malus with quarter magnitude
@@ -490,7 +540,8 @@ pub(in crate::search) fn alpha_beta(
                     let to_idx = move_to(m) as usize;
                     let old = ctx.cont6[pp6][pto6][pt][to_idx];
                     let quarter_malus = history_malus(depth) / 4;
-                    ctx.cont6[pp6][pto6][pt][to_idx] = old + quarter_malus - (old * quarter_malus.abs()) / HISTORY_GRAVITY;
+                    ctx.cont6[pp6][pto6][pt][to_idx] =
+                        old + quarter_malus - (old * quarter_malus.abs()) / HISTORY_GRAVITY;
                 }
             }
         }
@@ -540,9 +591,7 @@ pub(in crate::search) fn alpha_beta(
     ctx.history_hashes.pop();
 
     // Update correction history using the search result vs raw eval.
-    let raw_eval_for_correction = ctx.stack[ply]
-        .static_eval
-        .unwrap_or(static_eval);
+    let raw_eval_for_correction = ctx.stack[ply].static_eval.unwrap_or(static_eval);
     update_correction(ctx, board, depth, best_score, raw_eval_for_correction, ply);
     ctx.stats.corr_update_count += 1;
 
