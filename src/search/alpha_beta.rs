@@ -1,5 +1,5 @@
 use super::*;
-use crate::{probe, sample_probe};
+use crate::probe;
 
 pub(in crate::search) fn alpha_beta(
     board: &mut Board,

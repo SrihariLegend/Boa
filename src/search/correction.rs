@@ -1,6 +1,5 @@
 use super::*;
 use crate::board::{Board, Zobrist};
-use crate::types::*;
 
 // ---- Correction history constants ----
 

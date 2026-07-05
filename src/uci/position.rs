@@ -1,5 +1,5 @@
 use super::*;
-use crate::{probe, sample_probe};
+use crate::probe;
 pub(super) fn handle_position<'a>(
     mut tokens: impl Iterator<Item = &'a str>,
     board: &mut Board,
