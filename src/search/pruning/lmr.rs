@@ -48,7 +48,7 @@ pub(in crate::search) fn compute_lmr_reduction_details(
     }
 
     let final_reduction = reduction.clamp(0, input.depth - 2);
-    let new_depth = if final_reduction > 0 {
+    #[allow(unused_variables)] let new_depth = if final_reduction > 0 {
         (input.depth - 1 - final_reduction).max(1)
     } else {
         input.depth - 1

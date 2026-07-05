@@ -122,10 +122,19 @@ fn score_single_move(
 /// Score captures for move ordering. Uses MVV-LVA + capture history.
 /// SEE is NOT computed here — the QSearch pruning loop computes SEE once
 /// for the pruning decision, avoiding a redundant double evaluation.
-pub(in crate::search) fn score_captures(board: &Board, ctx: &SearchContext, list: &mut MoveList) {
+pub(in crate::search) fn score_captures(
+    board: &Board,
+    ctx: &SearchContext,
+    list: &mut MoveList,
+    tt_move: Move,
+) {
     let us = board.side as usize;
     for i in 0..list.count {
         let m = list.moves[i];
+        if m == tt_move {
+            list.scores[i] = 2_000_000;
+            continue;
+        }
         let cap = board.sq_piece[move_to(m) as usize];
         let cap_val = if cap != PIECE_NONE {
             piece_type(cap).material_value()

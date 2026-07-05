@@ -1,5 +1,5 @@
 use super::*;
-use crate::{probe, probe_close, probe_open};
+use crate::probe;
 pub(super) struct GoContext<'a> {
     pub(super) board: &'a mut Board,
     pub(super) position_history: &'a [u64],

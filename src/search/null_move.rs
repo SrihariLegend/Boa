@@ -29,6 +29,12 @@ pub(in crate::search) fn try_null_move(
     let r = NULL_MOVE_BASE_R + depth / NULL_MOVE_DEPTH_DIVISOR;
     let null_depth = depth - r;
     let undo = board.make_null_move(ctx.z);
+    
+    if ply < 128 {
+        ctx.stack[ply].current_move = MOVE_NONE;
+        ctx.stack[ply].cont_entry = None;
+    }
+
     let mut null_pv = Vec::new();
     let null_score = -alpha_beta(
         board,
