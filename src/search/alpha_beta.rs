@@ -289,6 +289,7 @@ pub(in crate::search) fn alpha_beta(
     let mut moves_searched = 0;
     let mut quiet_moves_searched = 0;
     let mut legal_moves = 0;
+    let mut ffp_pruned_any = false;
 
     for i in 0..list.count {
         list.pick_best(i);
@@ -318,7 +319,8 @@ pub(in crate::search) fn alpha_beta(
         };
         let is_killer = ply < 128 && (m == ctx.killers[ply][0] || m == ctx.killers[ply][1]);
         let is_counter = m == counter_move;
-        let ffp_see = if ctx.options.search.forward_futility_pruning
+        
+        let ffp_eligible = ctx.options.search.forward_futility_pruning
             && !is_pv
             && (1..=FFP_MAX_DEPTH).contains(&depth)
             && !in_check
@@ -328,12 +330,7 @@ pub(in crate::search) fn alpha_beta(
             && !is_mate_score(static_eval)
             && m != tt_move
             && !is_killer
-            && !is_counter
-        {
-            Some(static_exchange_eval(board, ctx.atk, m))
-        } else {
-            None
-        };
+            && !is_counter;
 
         // Make move and verify legality
         let undo = board.make_move(m, ctx.z);
@@ -363,7 +360,7 @@ pub(in crate::search) fn alpha_beta(
         let is_history_quiet = !is_capture && !is_promo;
 
         // ---- Forward futility pruning (quiet move frontier) ----
-        if is_quiet && ffp_see.is_some_and(|see| see <= 0) {
+        if is_quiet && ffp_eligible {
             ctx.stats.ffp_attempts += 1;
             let quiet_move_index = (quiet_moves_searched + 1).min(FFP_MAX_RANK);
             let ffp_input = FfpInput {
@@ -377,6 +374,7 @@ pub(in crate::search) fn alpha_beta(
             };
             if should_ffp_prune(ffp_input) {
                 ctx.stats.ffp_prunes += 1;
+                ffp_pruned_any = true;
                 board.unmake_move(m, &undo, ctx.z);
                 continue;
             }
@@ -578,6 +576,12 @@ pub(in crate::search) fn alpha_beta(
     if moves_searched == 0 {
         ctx.history_hashes.pop();
         return alpha;
+    }
+
+    // Returning/storing a searched best_score below original_alpha would create
+    // an over-tight upper bound that ignores the unsearched pruned moves.
+    if ffp_pruned_any && bound == Bound::Upper {
+        best_score = best_score.max(oa);
     }
 
     // Pop our position hash from history
