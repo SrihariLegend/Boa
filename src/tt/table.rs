@@ -49,7 +49,7 @@ impl TranspositionTable {
 
     pub fn probe(&self, hash: u64) -> Option<TtEntry> {
         let bucket = &self.buckets[self.index(hash)];
-        let key = (hash >> 32) as u32;
+        let key = hash as u32;
 
         for (i, slot) in bucket.entries.iter().enumerate() { #[allow(unused_variables)] let _ = i;
             let ctrl = slot.ctrl.load(Ordering::Acquire);
@@ -107,7 +107,7 @@ impl TranspositionTable {
         raw_eval: i16,
     ) {
         let bucket = &self.buckets[self.index(hash)];
-        let key = (hash >> 32) as u32;
+        let key = hash as u32;
         let age = self.age.load(Ordering::Relaxed);
 
         let mut _best_quality = i32::MAX;
@@ -166,6 +166,11 @@ impl TranspositionTable {
                 _best_quality = -i32::MAX;
                 break;
             }
+        }
+
+        if _best_quality == i32::MAX {
+            // All slots are busy, skip store
+            return;
         }
 
         // Perform the store operation on the chosen slot

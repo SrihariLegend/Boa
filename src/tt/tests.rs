@@ -9,7 +9,7 @@ pub(super) fn tt_round_trips_entry() {
     tt.store(hash, -123, 0x4321, 7, Bound::Lower, 0);
 
     let entry = tt.probe(hash).expect("stored entry");
-    assert_eq!(entry.key, 0x1234_5678);
+    assert_eq!(entry.key, 0x9abc_def0);
     assert_eq!(entry.score, -123);
     assert_eq!(entry.best, 0x4321);
     assert_eq!(entry.depth, 7);

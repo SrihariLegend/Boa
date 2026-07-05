@@ -34,14 +34,15 @@ pub(in crate::search) fn quiescence(
         let mut cutoff_score = 0;
 
         if depth_sufficient {
+            let adjusted_score = score_from_tt(entry.score, ply);
             if entry.bound == Bound::Exact {
-                cutoff_score = entry.score;
+                cutoff_score = adjusted_score;
                 do_cutoff = true;
-            } else if entry.bound == Bound::Lower && entry.score >= beta {
-                cutoff_score = entry.score;
+            } else if entry.bound == Bound::Lower && adjusted_score >= beta {
+                cutoff_score = adjusted_score;
                 do_cutoff = true;
-            } else if entry.bound == Bound::Upper && entry.score <= alpha {
-                cutoff_score = entry.score;
+            } else if entry.bound == Bound::Upper && adjusted_score <= alpha {
+                cutoff_score = adjusted_score;
                 do_cutoff = true;
             }
         }
@@ -80,6 +81,8 @@ pub(in crate::search) fn quiescence(
         let mut list = gen_moves(board, ctx.atk);
         score_moves(board, ctx, &mut list, MOVE_NONE, ply);
 
+        let mut best_move = tt_move;
+
         let mut legal_moves = 0;
         for i in 0..list.count {
             list.pick_best(i);
@@ -102,20 +105,21 @@ pub(in crate::search) fn quiescence(
                 return 0;
             }
             if score >= beta {
-                ctx.tt.store(hash, score, m, 0, Bound::Lower, raw_eval_from_tt.unwrap_or(0));
+                ctx.tt.store(hash, score_to_tt(score, ply), m, 0, Bound::Lower, raw_eval_from_tt.unwrap_or(0));
                 return score;
             }
             if score > alpha {
                 alpha = score;
+                best_move = m;
             }
         }
 
         if legal_moves == 0 {
             let final_score = -(SCORE_MATE - ply as Score);
-            ctx.tt.store(hash, final_score, MOVE_NONE, 0, Bound::Exact, raw_eval_from_tt.unwrap_or(0));
+            ctx.tt.store(hash, score_to_tt(final_score, ply), MOVE_NONE, 0, Bound::Exact, raw_eval_from_tt.unwrap_or(0));
             return final_score;
         }
-        ctx.tt.store(hash, alpha, tt_move, 0, get_bound(alpha, original_alpha, beta), raw_eval_from_tt.unwrap_or(0));
+        ctx.tt.store(hash, score_to_tt(alpha, ply), best_move, 0, get_bound(alpha, original_alpha, beta), raw_eval_from_tt.unwrap_or(0));
         return alpha;
     }
 
@@ -130,12 +134,15 @@ pub(in crate::search) fn quiescence(
     );
     let raw_eval = raw_eval_from_tt.unwrap_or(stand_pat as i16);
 
+    let mut best_move = tt_move;
+
     if stand_pat >= beta {
-        ctx.tt.store(hash, stand_pat, MOVE_NONE, 0, Bound::Lower, raw_eval);
+        ctx.tt.store(hash, score_to_tt(stand_pat, ply), MOVE_NONE, 0, Bound::Lower, raw_eval);
         return stand_pat;
     }
     if stand_pat > alpha {
         alpha = stand_pat;
+        best_move = MOVE_NONE;
     }
 
     let mut list = gen_captures(board, ctx.atk);
@@ -209,15 +216,16 @@ pub(in crate::search) fn quiescence(
 
         _captures_searched += 1;
         if score >= beta {
-            ctx.tt.store(hash, score, m, 0, Bound::Lower, raw_eval);
+            ctx.tt.store(hash, score_to_tt(score, ply), m, 0, Bound::Lower, raw_eval);
             return score;
         }
         if score > alpha {
             alpha = score;
+            best_move = m;
         }
     }
 
-    ctx.tt.store(hash, alpha, tt_move, 0, get_bound(alpha, original_alpha, beta), raw_eval);
+    ctx.tt.store(hash, score_to_tt(alpha, ply), best_move, 0, get_bound(alpha, original_alpha, beta), raw_eval);
     sample_probe!(
         32,
         Quiescence,
