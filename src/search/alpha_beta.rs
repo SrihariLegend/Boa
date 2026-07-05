@@ -195,9 +195,20 @@ pub(in crate::search) fn alpha_beta(
     }
 
     // Static evaluation for pruning heuristics — reuse TT raw_eval if available
-    let static_eval = if let Some(re) = tt_raw_eval {
-        if re != 0 {
-            re as Score
+    let mut static_eval = 0;
+    if !in_check {
+        static_eval = if let Some(re) = tt_raw_eval {
+            if re != 0 {
+                re as Score
+            } else {
+                evaluate(
+                    board,
+                    &EvalContext {
+                        atk: ctx.atk,
+                        options: &ctx.options,
+                    },
+                )
+            }
         } else {
             evaluate(
                 board,
@@ -206,16 +217,8 @@ pub(in crate::search) fn alpha_beta(
                     options: &ctx.options,
                 },
             )
-        }
-    } else {
-        evaluate(
-            board,
-            &EvalContext {
-                atk: ctx.atk,
-                options: &ctx.options,
-            },
-        )
-    };
+        };
+    }
     // Compute and cache non-pawn hashes for correction history.
     if ply < MAX_PLY {
         let np_hash_w = non_pawn_hash(board, ctx.z, Color::White);
@@ -226,13 +229,13 @@ pub(in crate::search) fn alpha_beta(
     // Compute correction value — used to widen pruning margins when eval
     // is unreliable for this position type. The raw static_eval feeds
     // pruning; |corr|/512 is added to each margin as an uncertainty term.
-    let corr_val = compute_correction(ctx, board, ply);
+    let corr_val = if !in_check { compute_correction(ctx, board, ply) } else { 0 };
     if ply < MAX_PLY {
         ctx.stack[ply].correction_value = Some(corr_val);
     }
-    let improving = is_improving(ctx, static_eval, ply);
+    let improving = if !in_check { is_improving(ctx, static_eval, ply) } else { false };
     if ply < MAX_PLY {
-        ctx.stack[ply].static_eval = Some(static_eval);
+        ctx.stack[ply].static_eval = if !in_check { Some(static_eval) } else { None };
     }
     // ---- Pruning heuristics (skip in check and PV nodes) ----
 
@@ -244,10 +247,14 @@ pub(in crate::search) fn alpha_beta(
             return rfp_score;
         }
 
-        if let Some(null_score) = try_null_move(board, ctx, beta, depth, ply, static_eval, corr_val)
-        {
-            ctx.history_hashes.pop();
-            return null_score;
+        let prev_move_was_null = ply > 0 && ctx.stack[ply - 1].current_move == MOVE_NONE;
+        
+        if !prev_move_was_null {
+            if let Some(null_score) = try_null_move(board, ctx, beta, depth, ply, static_eval, corr_val)
+            {
+                ctx.history_hashes.pop();
+                return null_score;
+            }
         }
     }
 
@@ -577,9 +584,11 @@ pub(in crate::search) fn alpha_beta(
     ctx.history_hashes.pop();
 
     // Update correction history using the search result vs raw eval.
-    let raw_eval_for_correction = ctx.stack[ply].static_eval.unwrap_or(static_eval);
-    update_correction(ctx, board, depth, best_score, raw_eval_for_correction, ply);
-    ctx.stats.corr_update_count += 1;
+    if !in_check {
+        let raw_eval_for_correction = ctx.stack[ply].static_eval.unwrap_or(static_eval);
+        update_correction(ctx, board, depth, best_score, raw_eval_for_correction, ply);
+        ctx.stats.corr_update_count += 1;
+    }
 
     // TT store (mate scores converted to node-relative distance).
     ctx.tt.store(
