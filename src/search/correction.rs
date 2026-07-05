@@ -8,7 +8,7 @@ const CORRHIST_LIMIT: i32 = 1024;
 
 /// Divisor for correction value before applying to eval.
 /// correction_value / CORRHIST_DIVISOR is the actual centipawn adjustment.
-const CORRHIST_DIVISOR: i32 = 512;
+
 
 /// Gravity constant for correction history updates.
 const CORRHIST_GRAVITY: i32 = 1024;
@@ -108,15 +108,7 @@ pub(in crate::search) fn compute_correction(ctx: &SearchContext, board: &Board, 
 /// Apply correction to raw_eval and return the corrected eval.
 /// The raw_eval is the uncorrected static evaluation.
 /// The corrected eval is what feeds into all pruning margins.
-pub(in crate::search) fn corrected_eval(
-    ctx: &SearchContext,
-    board: &Board,
-    raw_eval: Score,
-    ply: usize,
-) -> Score {
-    let corr = compute_correction(ctx, board, ply);
-    raw_eval + corr / CORRHIST_DIVISOR
-}
+
 
 // ---- Correction history update ----
 

@@ -89,7 +89,7 @@ pub(in crate::search) fn search_single(
         ctx.limits.move_time = hard_limit;
     }
 
-    let time_color = if board.side == Color::White {
+    #[allow(unused_variables)] let time_color = if board.side == Color::White {
         (ctx.limits.wtime, ctx.limits.winc)
     } else {
         (ctx.limits.btime, ctx.limits.binc)
@@ -154,7 +154,7 @@ pub(in crate::search) fn search_single(
         }
 
         // Report to UCI
-        let elapsed = ctx.elapsed_ms().max(1);
+        #[allow(unused_variables)] let elapsed = ctx.elapsed_ms().max(1);
         let nps = ctx.nodes * 1000 / elapsed;
         let score_str = if is_mate_score(score) {
             format!("mate {}", mate_in(score))
@@ -218,7 +218,7 @@ pub(in crate::search) fn search_single(
         }
     }
 
-    let elapsed = ctx.elapsed_ms().max(1);
+    #[allow(unused_variables)] let elapsed = ctx.elapsed_ms().max(1);
     probe!(
         SearchSummary,
         SearchSummaryEvent {

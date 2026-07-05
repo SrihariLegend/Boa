@@ -81,8 +81,8 @@ pub(in crate::search) fn alpha_beta(
     ctx.history_hashes.push(board.hash);
 
     // Mate distance pruning
-    let oa = alpha;
-    let ob = beta;
+    let oa = alpha; #[allow(unused_variables)] let _ = oa;
+    let ob = beta; #[allow(unused_variables)] let _ = ob;
     let mut alpha = alpha.max(-(SCORE_MATE - ply as Score));
     let beta_md = beta.min(SCORE_MATE - ply as Score - 1);
     if alpha >= beta_md {
@@ -113,7 +113,6 @@ pub(in crate::search) fn alpha_beta(
     );
     let beta = beta_md;
     let is_cut_node = !is_pv && beta == alpha + 1;
-    let original_alpha = alpha;
 
     let in_check = board.is_in_check(board.side);
 
@@ -228,7 +227,6 @@ pub(in crate::search) fn alpha_beta(
     // is unreliable for this position type. The raw static_eval feeds
     // pruning; |corr|/512 is added to each margin as an uncertainty term.
     let corr_val = compute_correction(ctx, board, ply);
-    let corrected_eval = static_eval + corr_val / 512;
     if ply < MAX_PLY {
         ctx.stack[ply].correction_value = Some(corr_val);
     }
@@ -288,7 +286,6 @@ pub(in crate::search) fn alpha_beta(
     for i in 0..list.count {
         list.pick_best(i);
         let m = list.moves[i];
-        let node_hash = board.hash;
         let side_to_move = board.side;
         let from = move_from(m);
         let to = move_to(m);
@@ -296,11 +293,6 @@ pub(in crate::search) fn alpha_beta(
         let is_capture =
             board.sq_piece[to as usize] != PIECE_NONE || move_flags(m) == MF_EN_PASSANT;
         let is_promo = move_flags(m) == MF_PROMOTION;
-        let prev_static_eval = if ply >= 2 && ply - 2 < MAX_PLY {
-            ctx.stack[ply - 2].static_eval
-        } else {
-            None
-        };
         let prev_move = if ply > 0 && ply < MAX_PLY {
             ctx.stack[ply - 1].current_move
         } else {
@@ -391,12 +383,6 @@ pub(in crate::search) fn alpha_beta(
                 ply,
                 depth,
                 history_score,
-                static_eval,
-                prev_static_eval,
-                alpha,
-                beta,
-                root_depth: ctx.root_depth,
-                side_to_move,
                 moving_piece,
                 is_pv,
                 is_cut_node,

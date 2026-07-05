@@ -51,7 +51,7 @@ impl TranspositionTable {
         let bucket = &self.buckets[self.index(hash)];
         let key = (hash >> 32) as u32;
 
-        for (i, slot) in bucket.entries.iter().enumerate() {
+        for (i, slot) in bucket.entries.iter().enumerate() { #[allow(unused_variables)] let _ = i;
             let ctrl = slot.ctrl.load(Ordering::Acquire);
             if ctrl == 0 || ctrl & CTRL_BUSY != 0 {
                 continue;
@@ -115,7 +115,7 @@ impl TranspositionTable {
         let mut _replaced_depth = 0;
 
         // Try to find a matching entry or the weakest entry for replacement
-        for (i, slot) in bucket.entries.iter().enumerate() {
+        for (i, slot) in bucket.entries.iter().enumerate() { #[allow(unused_variables)] let _ = i;
             let ctrl = slot.ctrl.load(Ordering::Acquire);
             if ctrl & CTRL_BUSY != 0 {
                 // Slot is busy, cannot use it

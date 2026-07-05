@@ -48,18 +48,13 @@ pub(in crate::search) struct SearchNode {
 }
 
 #[derive(Clone, Copy)]
+#[allow(dead_code)]
 pub(in crate::search) struct LmrInput {
     pub(in crate::search) moves_searched: usize,
     pub(in crate::search) move_index: usize,
     pub(in crate::search) ply: usize,
     pub(in crate::search) depth: i32,
     pub(in crate::search) history_score: i32,
-    pub(in crate::search) static_eval: Score,
-    pub(in crate::search) prev_static_eval: Option<Score>,
-    pub(in crate::search) alpha: Score,
-    pub(in crate::search) beta: Score,
-    pub(in crate::search) root_depth: i32,
-    pub(in crate::search) side_to_move: Color,
     pub(in crate::search) moving_piece: Piece,
     pub(in crate::search) is_pv: bool,
     pub(in crate::search) is_cut_node: bool,
@@ -75,6 +70,7 @@ pub(in crate::search) struct LmrInput {
 
 #[derive(Clone, Copy)]
 pub(in crate::search) struct LmrReduction {
+    #[allow(dead_code)]
     pub(in crate::search) base_reduction: i32,
     pub(in crate::search) final_reduction: i32,
 }
