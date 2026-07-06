@@ -126,8 +126,9 @@ impl TranspositionTable {
                 let current = unpack_entry(ctrl, slot.data.load(Ordering::Relaxed));
                 if current.key == key {
                     // Matching key found: update this entry
-                    if current.age == age && depth < current.depth {
-                        // Don't overwrite if new depth is shallower for the same search
+                    if depth < current.depth {
+                        // Don't overwrite if new depth is shallower, even across searches.
+                        // High depth naturally protects the entry via the quality score.
                         probe!(
                             TtProbe,
                             TtProbeEvent {
