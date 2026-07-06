@@ -16,6 +16,21 @@ pub(in crate::search) fn quiescence(
     ctx.nodes += 1;
     ctx.stats.qnodes += 1;
 
+    if ctx.is_repetition(board) {
+        let sign = if board.side == ctx.root_color { 1 } else { -1 };
+        let score = SCORE_DRAW - ctx.contempt * sign;
+        probe!(
+            DrawDetection,
+            DrawEvent {
+                draw_type: "repetition",
+                ply: ply as u32,
+                contempt_applied: ctx.contempt * sign,
+                score_returned: score,
+            }
+        );
+        return score;
+    }
+
     let original_alpha = alpha; // Keep original alpha for TT cutoff check
     let hash = board.hash;
     let tt_entry_option = ctx.tt.probe(hash);
@@ -79,7 +94,7 @@ pub(in crate::search) fn quiescence(
         }
 
         let mut list = gen_moves(board, ctx.atk);
-        score_moves(board, ctx, &mut list, MOVE_NONE, ply);
+        score_moves(board, ctx, &mut list, tt_move, ply);
 
         let mut best_move = tt_move;
 
@@ -98,7 +113,9 @@ pub(in crate::search) fn quiescence(
             if ply < 128 {
                 ctx.stack[ply].current_move = m;
             }
+            ctx.history_hashes.push(hash);
             let score = -quiescence(board, ctx, -beta, -alpha, ply + 1);
+            ctx.history_hashes.pop();
             board.unmake_move(m, &undo, ctx.z);
 
             if ctx.stopped {
@@ -211,7 +228,9 @@ pub(in crate::search) fn quiescence(
             continue;
         }
 
+        ctx.history_hashes.push(hash);
         let score = -quiescence(board, ctx, -beta, -alpha, ply + 1);
+        ctx.history_hashes.pop();
         board.unmake_move(m, &undo, ctx.z);
 
         _captures_searched += 1;

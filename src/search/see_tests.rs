@@ -71,3 +71,24 @@ pub(in crate::search) fn see_unpinned_rook_still_counts() {
     // Rook IS a valid attacker (not pinned) -> SEE = 100
     assert_eq!(see, 100);
 }
+
+#[test]
+pub(in crate::search) fn see_diagonal_pin_different_quadrant() {
+    // White King on c6. White Queen on e4. White Pawn on e8.
+    // Black Bishop on g2 pins the Queen on the c6-g2 diagonal.
+    // Black Knight on d6 captures the Pawn on e8.
+    // The White Queen on e4 attacks e8 (on the e-file).
+    // e8 is also on a diagonal from c6 (c6-e8).
+    // The x-direction from c6 to e4 and c6 to e8 is the same.
+    // If the pin direction check only checks x-signum, it allows the Queen to recapture!
+    // But e8 is on the OTHER diagonal (y-direction is opposite).
+    // The Queen is absolutely pinned and CANNOT recapture.
+    let fen = "4P3/8/2Kn4/8/4Q3/8/6b1/8 b - - 0 1";
+    
+    // Black plays d6e8, capturing the pawn.
+    // White's Queen is pinned, White King is too far.
+    // So Black safely wins a Pawn (+100).
+    let see = see_for(fen, "d6e8");
+    assert_eq!(see, PieceType::Pawn.material_value());
+}
+
