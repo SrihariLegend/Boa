@@ -195,9 +195,9 @@ pub(in crate::search) fn is_pinned(
     if (same_rank && kr == tr)
         || (same_file && kf == tf)
         || (same_diag
-            && (kf - sf).abs() == (kr - sr).abs()
             && (kf - tf).abs() == (kr - tr).abs()
-            && (kf - sf).signum() == (kf - tf).signum())
+            && (kf - sf).signum() == (kf - tf).signum()
+            && (kr - sr).signum() == (kr - tr).signum())
     {
         return false;
     }

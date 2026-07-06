@@ -311,12 +311,7 @@ pub(in crate::search) fn alpha_beta(
         } else {
             MOVE_NONE
         };
-        let mover = board.side as usize;
-        let history_score = if moving_piece != PIECE_NONE {
-            ctx.history[mover][piece_type(moving_piece) as usize][to as usize]
-        } else {
-            0
-        };
+        let history_score = if !is_capture { list.scores[i] } else { 0 };
         let is_killer = ply < 128 && (m == ctx.killers[ply][0] || m == ctx.killers[ply][1]);
         let is_counter = m == counter_move;
         
@@ -564,11 +559,20 @@ pub(in crate::search) fn alpha_beta(
     if legal_moves == 0 {
         ctx.history_hashes.pop();
         let sign = if board.side == ctx.root_color { 1 } else { -1 };
-        return if in_check {
+        let final_score = if in_check {
             -(SCORE_MATE - ply as Score)
         } else {
             SCORE_DRAW - ctx.contempt * sign
         };
+        ctx.tt.store(
+            board.hash,
+            score_to_tt(final_score, ply),
+            MOVE_NONE,
+            depth as i8,
+            Bound::Exact,
+            static_eval as i16,
+        );
+        return final_score;
     }
 
     // If forward futility pruned every legal move, return the original upper
