@@ -568,28 +568,13 @@ pub(in crate::search) fn alpha_beta(
                 }
                 child_pv.clear();
                 
-                let mut research_depth = depth - 1;
-                // Only adjust depth if this was actually a reduced search
-                if reduction > 0 && best_score > -SCORE_INF + 1000 {
-                    if s > best_score + 50 {
-                        research_depth += 1;
-                    } else if s < best_score + 10 {
-                        research_depth = (research_depth - 1).max(1);
-                    }
-                }
-                
-                // Safety cap on extensions to prevent infinite loops
-                if research_depth > depth {
-                    research_depth = depth;
-                }
-                
                 s = -alpha_beta(
                     board,
                     ctx,
                     SearchNode {
                         alpha: -beta,
                         beta: -alpha,
-                        depth: research_depth,
+                        depth: depth - 1,
                         ply: ply + 1,
                         is_pv,
                     },

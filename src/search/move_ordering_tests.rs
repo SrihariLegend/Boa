@@ -159,7 +159,7 @@ pub(in crate::search) fn quiet_history_distribution_is_not_immediately_saturated
     );
 
     assert!(nonzero > 0);
-    assert!(max_abs < LMR_HISTORY_CLAMP);
+    assert!(max_abs <= HISTORY_GRAVITY);
     assert!(white_abs_sum > 0);
     assert!(black_abs_sum > 0);
 }
