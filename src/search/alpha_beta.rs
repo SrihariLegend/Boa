@@ -396,10 +396,22 @@ pub(in crate::search) fn alpha_beta(
         } else {
             MOVE_NONE
         };
-        let history_score = if !is_capture { list.scores[i] } else { 0 };
         let is_killer = ply < 128 && (m == ctx.killers[ply][0] || m == ctx.killers[ply][1]);
         let is_counter = m == counter_move;
         
+        let mut history_score = if !is_capture { list.scores[i] } else { 0 };
+        if history_score >= 700_000 {
+            if m == tt_move {
+                history_score = 0; // unknown history, assume 0 for LMR
+            } else if ply < 128 && m == ctx.killers[ply][0] {
+                history_score -= 900_000;
+            } else if ply < 128 && m == ctx.killers[ply][1] {
+                history_score -= 800_000;
+            } else if is_counter {
+                history_score -= 750_000;
+            }
+        }
+
         let ffp_eligible = ctx.options.search.forward_futility_pruning
             && !is_pv
             && (1..=FFP_MAX_DEPTH).contains(&depth)
@@ -460,6 +472,27 @@ pub(in crate::search) fn alpha_beta(
             }
         }
 
+        // ---- History Pruning (5.5) ----
+        if is_quiet && !is_pv && depth < 4 {
+            if history_score < -5000 * depth {
+                board.unmake_move(m, &undo, ctx.z);
+                continue;
+            }
+            // Continuation pruning
+            if ply >= 2 && ply < 128 {
+                if let (Some((p1, to1)), Some((p2, to2))) = (ctx.stack[ply - 1].cont_entry, ctx.stack[ply - 2].cont_entry) {
+                    let mover_pt = piece_type(moving_piece) as usize;
+                    let to_idx = to as usize;
+                    let c1 = ctx.cont1[p1][to1][mover_pt][to_idx];
+                    let c2 = ctx.cont2[p2][to2][mover_pt][to_idx];
+                    if c1 < -2000 && c2 < -2000 { // "strongly negative" threshold, we use -2000 roughly
+                        board.unmake_move(m, &undo, ctx.z);
+                        continue;
+                    }
+                }
+            }
+        }
+
         // ---- Late move reductions (LMR) ----
         let lmr = compute_lmr_reduction_details(
             LmrInput {
@@ -479,6 +512,7 @@ pub(in crate::search) fn alpha_beta(
                 is_promo,
                 gives_check,
                 in_check,
+                corr_val,
             },
             ctx,
         );
@@ -533,13 +567,29 @@ pub(in crate::search) fn alpha_beta(
                     ctx.stats.lmr_re_searches += 1;
                 }
                 child_pv.clear();
+                
+                let mut research_depth = depth - 1;
+                // Only adjust depth if this was actually a reduced search
+                if reduction > 0 && best_score > -SCORE_INF + 1000 {
+                    if s > best_score + 50 {
+                        research_depth += 1;
+                    } else if s < best_score + 10 {
+                        research_depth = (research_depth - 1).max(1);
+                    }
+                }
+                
+                // Safety cap on extensions to prevent infinite loops
+                if research_depth > depth {
+                    research_depth = depth;
+                }
+                
                 s = -alpha_beta(
                     board,
                     ctx,
                     SearchNode {
                         alpha: -beta,
                         beta: -alpha,
-                        depth: depth - 1,
+                        depth: research_depth,
                         ply: ply + 1,
                         is_pv,
                     },
