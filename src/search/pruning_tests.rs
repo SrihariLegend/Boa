@@ -43,7 +43,10 @@ pub(in crate::search) fn lmr_uses_history_to_adjust_reduction() {
 
     let neutral_history = lmr_reduction_for(reducible_lmr_input(12, LMR_FULL_DEPTH_MOVES + 16));
     assert_eq!(lmr_reduction_for(bad_history), neutral_history + 4);
-    assert_eq!(lmr_reduction_for(good_history), (neutral_history - 4).max(0));
+    assert_eq!(
+        lmr_reduction_for(good_history),
+        (neutral_history - 4).max(0)
+    );
 }
 
 // ---- FFP tests ----

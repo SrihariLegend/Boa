@@ -84,11 +84,10 @@ pub(in crate::search) fn see_diagonal_pin_different_quadrant() {
     // But e8 is on the OTHER diagonal (y-direction is opposite).
     // The Queen is absolutely pinned and CANNOT recapture.
     let fen = "4P3/8/2Kn4/8/4Q3/8/6b1/8 b - - 0 1";
-    
+
     // Black plays d6e8, capturing the pawn.
     // White's Queen is pinned, White King is too far.
     // So Black safely wins a Pawn (+100).
     let see = see_for(fen, "d6e8");
     assert_eq!(see, PieceType::Pawn.material_value());
 }
-

@@ -30,7 +30,8 @@ pub(in crate::search) fn try_tt_cutoff(
         Bound::Upper => s <= alpha,
         _ => false,
     };
-    #[allow(unused_variables)] let et = match entry.bound {
+    #[allow(unused_variables)]
+    let et = match entry.bound {
         Bound::Exact => "exact",
         Bound::Lower => "lower",
         Bound::Upper => "upper",

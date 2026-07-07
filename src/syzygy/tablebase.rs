@@ -43,7 +43,9 @@ impl SyzygyTablebase {
         }
         let pos = board_to_shakmaty(board)?;
         let result = probe_position_score(&self.tables, &pos, options, ply);
-        if let Some(score) = result { #[allow(unused_variables)] let _ = score;
+        if let Some(score) = result {
+            #[allow(unused_variables)]
+            let _ = score;
             probe!(
                 Syzygy,
                 SyzygyEvent {
