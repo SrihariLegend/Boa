@@ -589,13 +589,29 @@ pub(in crate::search) fn alpha_beta(
                 }
                 child_pv.clear();
 
+                // Adjust re-search depth based on how much the reduced search
+                // exceeded alpha. Strong fail-high → search deeper (it was
+                // promising). Bare fail-high → search shallower (marginal).
+                let mut research_depth = depth - 1;
+                if reduction > 0 && best_score > -SCORE_INF + 1000 {
+                    if s > best_score + 50 {
+                        research_depth += 1;
+                    } else if s < best_score + 10 {
+                        research_depth = (research_depth - 1).max(1);
+                    }
+                }
+                // Never search deeper than the original depth.
+                if research_depth > depth {
+                    research_depth = depth;
+                }
+
                 s = -alpha_beta(
                     board,
                     ctx,
                     SearchNode {
                         alpha: -beta,
                         beta: -alpha,
-                        depth: depth - 1,
+                        depth: research_depth,
                         ply: ply + 1,
                         is_pv,
                     },
