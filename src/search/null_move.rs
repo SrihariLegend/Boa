@@ -26,7 +26,16 @@ pub(in crate::search) fn try_null_move(
         return None;
     }
     ctx.stats.null_move_tries += 1;
-    let r = NULL_MOVE_BASE_R + depth / NULL_MOVE_DEPTH_DIVISOR;
+    let prev_move_was_tactical = if ply > 0 { ctx.stack[ply - 1].is_tactical } else { false };
+    
+    let eval_margin = (static_eval - beta) / 200;
+    let eval_term = eval_margin.clamp(0, 3);
+    
+    let mut r = 4 + depth / 3 + eval_term;
+    if prev_move_was_tactical {
+        r += 1;
+    }
+    
     let null_depth = depth - r;
     let undo = board.make_null_move(ctx.z);
     
@@ -51,6 +60,34 @@ pub(in crate::search) fn try_null_move(
     board.unmake_null_move(&undo);
 
     let pruned = null_score >= beta;
+    let mut verified = pruned;
+    
+    if pruned && depth >= 14 {
+        ctx.nmp_in_progress = true;
+        let v_depth = depth - r - 4;
+        let mut v_pv = Vec::new();
+        
+        ctx.history_hashes.pop(); // temporarily remove so verification search doesn't instantly draw
+        let v_score = alpha_beta(
+            board,
+            ctx,
+            SearchNode {
+                alpha: beta - 1,
+                beta,
+                depth: v_depth,
+                ply,
+                is_pv: false,
+            },
+            &mut v_pv,
+        );
+        ctx.history_hashes.push(board.hash); // restore
+        
+        ctx.nmp_in_progress = false;
+        if v_score < beta {
+            verified = false;
+        }
+    }
+
     probe!(
         NullMove,
         NullMoveEvent {
@@ -59,10 +96,10 @@ pub(in crate::search) fn try_null_move(
             beta: beta,
             reduction: r,
             null_move_score: null_score,
-            pruned: pruned,
+            pruned: verified,
         }
     );
-    if pruned {
+    if verified {
         ctx.stats.null_move_cutoffs += 1;
         return Some(beta);
     }

@@ -247,9 +247,18 @@ pub(in crate::search) fn alpha_beta(
             return rfp_score;
         }
 
+        // Razoring
+        if depth <= 4 && static_eval + 150 * depth <= alpha {
+            let qscore = quiescence(board, ctx, alpha, beta, ply);
+            if qscore <= alpha {
+                ctx.history_hashes.pop();
+                return qscore;
+            }
+        }
+
         let prev_move_was_null = ply > 0 && ctx.stack[ply - 1].current_move == MOVE_NONE;
         
-        if !prev_move_was_null {
+        if !prev_move_was_null && !ctx.nmp_in_progress {
             if let Some(null_score) = try_null_move(board, ctx, beta, depth, ply, static_eval, corr_val)
             {
                 ctx.history_hashes.pop();
@@ -281,6 +290,82 @@ pub(in crate::search) fn alpha_beta(
     if ply == 0 && ctx.smp_worker_id > 0 && list.count > 1 {
         let idx = ctx.smp_worker_id % list.count;
         list.scores[idx] += 3_000_000;
+    }
+
+    // ProbCut
+    if !is_pv && !in_check && depth >= 5 && !is_mate_score(beta) {
+        let prob_beta = beta + 150;
+        
+        let mut prob_tt_valid = true;
+        if let Some(tt) = ctx.tt.probe(board.hash) {
+            let s = score_from_tt(tt.score, ply);
+            if tt.depth >= (depth - 4) as i8 && tt.bound == Bound::Upper && s < prob_beta {
+                prob_tt_valid = false;
+            }
+        }
+        
+        if prob_tt_valid {
+            let mut attempts = 0;
+            let mut prob_cutoff = false;
+            let mut final_prob_score = None;
+            for i in 0..list.count {
+                let m = list.moves[i];
+                let to = move_to(m);
+                let is_capture = board.sq_piece[to as usize] != PIECE_NONE || move_flags(m) == MF_EN_PASSANT;
+                
+                if is_capture && static_exchange_eval(board, ctx.atk, m) >= prob_beta - static_eval {
+                    attempts += 1;
+                    if ply < 128 {
+                        ctx.stack[ply].current_move = m;
+                        ctx.stack[ply].is_tactical = true;
+                    }
+                    let undo = board.make_move(m, ctx.z);
+                    let mut prob_pv = Vec::new();
+                    let prob_score = -alpha_beta(
+                        board,
+                        ctx,
+                        SearchNode {
+                            alpha: -prob_beta,
+                            beta: -prob_beta + 1,
+                            depth: depth - 4,
+                            ply: ply + 1,
+                            is_pv: false,
+                        },
+                        &mut prob_pv,
+                    );
+                    board.unmake_move(m, &undo, ctx.z);
+                    
+                    final_prob_score = Some(prob_score);
+                    
+                    if prob_score >= prob_beta {
+                        prob_cutoff = true;
+                        break;
+                    }
+                }
+            }
+            if attempts > 0 {
+                let accepted = prob_cutoff;
+                let prob_score = final_prob_score;
+                let nodes_saved = if prob_cutoff { Some(0) } else { None };
+                probe!(
+                    ProbCut,
+                    ProbCutEvent {
+                        depth: depth,
+                        beta: beta,
+                        prob_beta: prob_beta,
+                        static_eval: static_eval,
+                        attempts: attempts,
+                        accepted: accepted,
+                        prob_score: prob_score,
+                        nodes_saved: nodes_saved,
+                    }
+                );
+                if prob_cutoff {
+                    ctx.history_hashes.pop();
+                    return prob_beta;
+                }
+            }
+        }
     }
 
     let mut best_move = MOVE_NONE;
@@ -413,6 +498,7 @@ pub(in crate::search) fn alpha_beta(
         // stack[ply].current_move for the counter-move heuristic.
         if ply < 128 {
             ctx.stack[ply].current_move = m;
+            ctx.stack[ply].is_tactical = is_capture || is_promo;
         }
 
         let mut child_pv = Vec::new();

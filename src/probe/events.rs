@@ -657,6 +657,29 @@ pub struct CorrectionHistoryEvent {
 // ============================================================
 // Master enum — serde(tag = "typ") produces {"typ":"fp",...fields}
 // ============================================================
+// ============================================================
+// 21. ProbCut — typ:"pc" — fires when ProbCut is evaluated
+// ============================================================
+#[cfg_attr(feature = "probes", derive(Serialize))]
+pub struct ProbCutEvent {
+    #[cfg_attr(feature = "probes", serde(rename = "d"))]
+    pub depth: i32,
+    #[cfg_attr(feature = "probes", serde(rename = "b"))]
+    pub beta: i32,
+    #[cfg_attr(feature = "probes", serde(rename = "pb"))]
+    pub prob_beta: i32,
+    #[cfg_attr(feature = "probes", serde(rename = "se"))]
+    pub static_eval: i32,
+    #[cfg_attr(feature = "probes", serde(rename = "at"))]
+    pub attempts: u32,
+    #[cfg_attr(feature = "probes", serde(rename = "ac"))]
+    pub accepted: bool,
+    #[cfg_attr(feature = "probes", serde(rename = "ps"))]
+    pub prob_score: Option<i32>,
+    #[cfg_attr(feature = "probes", serde(rename = "ns"))]
+    pub nodes_saved: Option<u64>,
+}
+
 #[cfg_attr(feature = "probes", derive(Serialize))]
 #[cfg_attr(feature = "probes", serde(tag = "typ"))]
 pub enum ProbeEvent {
@@ -710,6 +733,8 @@ pub enum ProbeEvent {
     ContHistory(ContHistoryEvent),
     #[cfg_attr(feature = "probes", serde(rename = "cr"))]
     CorrectionHistory(CorrectionHistoryEvent),
+    #[cfg_attr(feature = "probes", serde(rename = "pc"))]
+    ProbCut(ProbCutEvent),
 
     /// Sentinel: tells the writer thread to flush and end the file.
     #[cfg_attr(feature = "probes", serde(rename = "xx"))]

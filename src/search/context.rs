@@ -65,6 +65,7 @@ pub struct SearchContext<'a> {
     pub syzygy: Option<&'a SyzygyTablebase>,
     pub root_color: Color,
     pub game_id: u64,
+    pub nmp_in_progress: bool,
     pub search_id: u64,
     // Set by the UCI input thread when "stop"/"quit" arrives mid-search.
     // Without this the engine can emit a stale bestmove into the next game
@@ -124,6 +125,7 @@ pub struct SearchContext<'a> {
 #[derive(Clone, Copy, Default)]
 pub struct PlyInfo {
     pub current_move: Move,
+    pub is_tactical: bool,
     pub static_eval: Option<Score>,
     /// (piece_type as usize, to_sq as usize) of the move made at this ply.
     /// Used by continuation history — the child reads this from `stack[ply-1]`
@@ -165,6 +167,7 @@ impl<'a> SearchContext<'a> {
             syzygy,
             root_color: Color::White, // set by search() before iterating
             game_id,
+            nmp_in_progress: false,
             search_id,
             history_hashes,
             nodes: 0,
