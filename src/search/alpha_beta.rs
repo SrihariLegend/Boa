@@ -344,9 +344,9 @@ pub(in crate::search) fn alpha_beta(
                 }
             }
             if attempts > 0 {
-                let accepted = prob_cutoff;
-                let prob_score = final_prob_score;
-                let nodes_saved = if prob_cutoff { Some(0) } else { None };
+                #[allow(unused_variables)] let accepted = prob_cutoff;
+                #[allow(unused_variables)] let prob_score = final_prob_score;
+                #[allow(unused_variables)] let nodes_saved = if prob_cutoff { Some(0) } else { None };
                 probe!(
                     ProbCut,
                     ProbCutEvent {
