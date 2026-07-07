@@ -84,11 +84,7 @@ pub(in crate::search) const LMR_LOG_DIVISOR: f64 = 2.5;
 
 /// LMR: normalize quiet history into a small reduction adjustment.
 /// Clamped at HISTORY_GRAVITY (the natural ceiling under gravity aging).
-pub(in crate::search) const LMR_HISTORY_CLAMP: i32 = HISTORY_GRAVITY;
 pub(in crate::search) const LMR_HISTORY_NORMALIZER: i32 = 4_096;
-
-/// LMR: extra reduction when the static eval is improving for side to move.
-pub(in crate::search) const LMR_IMPROVING_BONUS: i32 = 0;
 
 /// LMR: whether to scale reductions by PV/cut-node type.
 /// Standard in Stockfish, Ethereal, Berserk: PV gets less reduction.
