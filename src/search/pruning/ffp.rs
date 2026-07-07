@@ -16,7 +16,8 @@ pub(in crate::search) fn should_ffp_prune(input: FfpInput) -> bool {
     let required_gain = input.alpha - input.static_eval;
     let pruned = estimated_gain + FFP_BUFFER < required_gain;
 
-    #[allow(unused_variables)] let rate = if input.depth <= 2 { 1 } else { 8 };
+    #[allow(unused_variables)]
+    let rate = if input.depth <= 2 { 1 } else { 8 };
     sample_probe!(
         rate,
         Ffp,

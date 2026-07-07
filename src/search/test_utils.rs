@@ -72,5 +72,6 @@ pub(in crate::search) fn reducible_lmr_input(depth: i32, moves_searched: usize) 
         is_promo: false,
         gives_check: false,
         in_check: false,
+        corr_val: 0,
     }
 }

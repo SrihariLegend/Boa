@@ -71,11 +71,6 @@ pub(in crate::search) const FFP_MAX_RANK: usize = 60;
 /// Standard: 3 (CPW, SF).
 pub(in crate::search) const NULL_MOVE_MIN_DEPTH: i32 = 3;
 
-/// Null-move reduction: base + depth/4.
-/// SF uses 4 + depth/6 post-tuning; 3 + depth/4 is a common simpler formula (CPW).
-pub(in crate::search) const NULL_MOVE_BASE_R: i32 = 3;
-pub(in crate::search) const NULL_MOVE_DEPTH_DIVISOR: i32 = 4;
-
 /// Late move reductions: minimum moves searched before applying LMR.
 /// Classic conservative LMR: reduce only late quiet moves.
 pub(in crate::search) const LMR_FULL_DEPTH_MOVES: usize = 4;
@@ -89,11 +84,7 @@ pub(in crate::search) const LMR_LOG_DIVISOR: f64 = 2.5;
 
 /// LMR: normalize quiet history into a small reduction adjustment.
 /// Clamped at HISTORY_GRAVITY (the natural ceiling under gravity aging).
-pub(in crate::search) const LMR_HISTORY_CLAMP: i32 = HISTORY_GRAVITY;
 pub(in crate::search) const LMR_HISTORY_NORMALIZER: i32 = 4_096;
-
-/// LMR: extra reduction when the static eval is improving for side to move.
-pub(in crate::search) const LMR_IMPROVING_BONUS: i32 = 0;
 
 /// LMR: whether to scale reductions by PV/cut-node type.
 /// Standard in Stockfish, Ethereal, Berserk: PV gets less reduction.

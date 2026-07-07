@@ -66,6 +66,7 @@ pub(in crate::search) struct LmrInput {
     pub(in crate::search) is_promo: bool,
     pub(in crate::search) gives_check: bool,
     pub(in crate::search) in_check: bool,
+    pub(in crate::search) corr_val: i32,
 }
 
 #[derive(Clone, Copy)]

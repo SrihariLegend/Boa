@@ -81,8 +81,12 @@ pub(in crate::search) fn alpha_beta(
     ctx.history_hashes.push(board.hash);
 
     // Mate distance pruning
-    let oa = alpha; #[allow(unused_variables)] let _ = oa;
-    let ob = beta; #[allow(unused_variables)] let _ = ob;
+    let oa = alpha;
+    #[allow(unused_variables)]
+    let _ = oa;
+    let ob = beta;
+    #[allow(unused_variables)]
+    let _ = ob;
     let mut alpha = alpha.max(-(SCORE_MATE - ply as Score));
     let beta_md = beta.min(SCORE_MATE - ply as Score - 1);
     if alpha >= beta_md {
@@ -229,11 +233,19 @@ pub(in crate::search) fn alpha_beta(
     // Compute correction value — used to widen pruning margins when eval
     // is unreliable for this position type. The raw static_eval feeds
     // pruning; |corr|/512 is added to each margin as an uncertainty term.
-    let corr_val = if !in_check { compute_correction(ctx, board, ply) } else { 0 };
+    let corr_val = if !in_check {
+        compute_correction(ctx, board, ply)
+    } else {
+        0
+    };
     if ply < MAX_PLY {
         ctx.stack[ply].correction_value = Some(corr_val);
     }
-    let improving = if !in_check { is_improving(ctx, static_eval, ply) } else { false };
+    let improving = if !in_check {
+        is_improving(ctx, static_eval, ply)
+    } else {
+        false
+    };
     if ply < MAX_PLY {
         ctx.stack[ply].static_eval = if !in_check { Some(static_eval) } else { None };
     }
@@ -247,10 +259,20 @@ pub(in crate::search) fn alpha_beta(
             return rfp_score;
         }
 
+        // Razoring
+        if depth <= 4 && static_eval + 150 * depth <= alpha {
+            let qscore = quiescence(board, ctx, alpha, beta, ply);
+            if qscore <= alpha {
+                ctx.history_hashes.pop();
+                return qscore;
+            }
+        }
+
         let prev_move_was_null = ply > 0 && ctx.stack[ply - 1].current_move == MOVE_NONE;
-        
-        if !prev_move_was_null {
-            if let Some(null_score) = try_null_move(board, ctx, beta, depth, ply, static_eval, corr_val)
+
+        if !prev_move_was_null && !ctx.nmp_in_progress {
+            if let Some(null_score) =
+                try_null_move(board, ctx, beta, depth, ply, static_eval, corr_val)
             {
                 ctx.history_hashes.pop();
                 return null_score;
@@ -283,6 +305,87 @@ pub(in crate::search) fn alpha_beta(
         list.scores[idx] += 3_000_000;
     }
 
+    // ProbCut
+    if !is_pv && !in_check && depth >= 5 && !is_mate_score(beta) {
+        let prob_beta = beta + 150;
+
+        let mut prob_tt_valid = true;
+        if let Some(tt) = ctx.tt.probe(board.hash) {
+            let s = score_from_tt(tt.score, ply);
+            if tt.depth >= (depth - 4) as i8 && tt.bound == Bound::Upper && s < prob_beta {
+                prob_tt_valid = false;
+            }
+        }
+
+        if prob_tt_valid {
+            let mut attempts = 0;
+            let mut prob_cutoff = false;
+            let mut final_prob_score = None;
+            for i in 0..list.count {
+                let m = list.moves[i];
+                let to = move_to(m);
+                let is_capture =
+                    board.sq_piece[to as usize] != PIECE_NONE || move_flags(m) == MF_EN_PASSANT;
+
+                if is_capture && static_exchange_eval(board, ctx.atk, m) >= prob_beta - static_eval
+                {
+                    attempts += 1;
+                    if ply < 128 {
+                        ctx.stack[ply].current_move = m;
+                        ctx.stack[ply].is_tactical = true;
+                    }
+                    let undo = board.make_move(m, ctx.z);
+                    let mut prob_pv = Vec::new();
+                    let prob_score = -alpha_beta(
+                        board,
+                        ctx,
+                        SearchNode {
+                            alpha: -prob_beta,
+                            beta: -prob_beta + 1,
+                            depth: depth - 4,
+                            ply: ply + 1,
+                            is_pv: false,
+                        },
+                        &mut prob_pv,
+                    );
+                    board.unmake_move(m, &undo, ctx.z);
+
+                    final_prob_score = Some(prob_score);
+
+                    if prob_score >= prob_beta {
+                        prob_cutoff = true;
+                        break;
+                    }
+                }
+            }
+            if attempts > 0 {
+                #[allow(unused_variables)]
+                let accepted = prob_cutoff;
+                #[allow(unused_variables)]
+                let prob_score = final_prob_score;
+                #[allow(unused_variables)]
+                let nodes_saved = if prob_cutoff { Some(0) } else { None };
+                probe!(
+                    ProbCut,
+                    ProbCutEvent {
+                        depth: depth,
+                        beta: beta,
+                        prob_beta: prob_beta,
+                        static_eval: static_eval,
+                        attempts: attempts,
+                        accepted: accepted,
+                        prob_score: prob_score,
+                        nodes_saved: nodes_saved,
+                    }
+                );
+                if prob_cutoff {
+                    ctx.history_hashes.pop();
+                    return prob_beta;
+                }
+            }
+        }
+    }
+
     let mut best_move = MOVE_NONE;
     let mut best_score = -SCORE_INF;
     let mut bound = Bound::Upper;
@@ -311,10 +414,22 @@ pub(in crate::search) fn alpha_beta(
         } else {
             MOVE_NONE
         };
-        let history_score = if !is_capture { list.scores[i] } else { 0 };
         let is_killer = ply < 128 && (m == ctx.killers[ply][0] || m == ctx.killers[ply][1]);
         let is_counter = m == counter_move;
-        
+
+        let mut history_score = if !is_capture { list.scores[i] } else { 0 };
+        if history_score >= 700_000 {
+            if m == tt_move {
+                history_score = 0; // unknown history, assume 0 for LMR
+            } else if ply < 128 && m == ctx.killers[ply][0] {
+                history_score -= 900_000;
+            } else if ply < 128 && m == ctx.killers[ply][1] {
+                history_score -= 800_000;
+            } else if is_counter {
+                history_score -= 750_000;
+            }
+        }
+
         let ffp_eligible = ctx.options.search.forward_futility_pruning
             && !is_pv
             && (1..=FFP_MAX_DEPTH).contains(&depth)
@@ -375,6 +490,30 @@ pub(in crate::search) fn alpha_beta(
             }
         }
 
+        // ---- History Pruning (5.5) ----
+        if is_quiet && !is_pv && depth < 4 {
+            if history_score < -5000 * depth {
+                board.unmake_move(m, &undo, ctx.z);
+                continue;
+            }
+            // Continuation pruning
+            if ply >= 2 && ply < 128 {
+                if let (Some((p1, to1)), Some((p2, to2))) =
+                    (ctx.stack[ply - 1].cont_entry, ctx.stack[ply - 2].cont_entry)
+                {
+                    let mover_pt = piece_type(moving_piece) as usize;
+                    let to_idx = to as usize;
+                    let c1 = ctx.cont1[p1][to1][mover_pt][to_idx];
+                    let c2 = ctx.cont2[p2][to2][mover_pt][to_idx];
+                    if c1 < -2000 && c2 < -2000 {
+                        // "strongly negative" threshold, we use -2000 roughly
+                        board.unmake_move(m, &undo, ctx.z);
+                        continue;
+                    }
+                }
+            }
+        }
+
         // ---- Late move reductions (LMR) ----
         let lmr = compute_lmr_reduction_details(
             LmrInput {
@@ -394,6 +533,7 @@ pub(in crate::search) fn alpha_beta(
                 is_promo,
                 gives_check,
                 in_check,
+                corr_val,
             },
             ctx,
         );
@@ -403,7 +543,7 @@ pub(in crate::search) fn alpha_beta(
         }
 
         let new_depth = if reduction > 0 {
-            (depth - 1 - reduction).max(1)
+            (depth - 1 - reduction).max(0)
         } else {
             depth - 1
         };
@@ -413,6 +553,7 @@ pub(in crate::search) fn alpha_beta(
         // stack[ply].current_move for the counter-move heuristic.
         if ply < 128 {
             ctx.stack[ply].current_move = m;
+            ctx.stack[ply].is_tactical = is_capture || is_promo;
         }
 
         let mut child_pv = Vec::new();
@@ -447,6 +588,7 @@ pub(in crate::search) fn alpha_beta(
                     ctx.stats.lmr_re_searches += 1;
                 }
                 child_pv.clear();
+
                 s = -alpha_beta(
                     board,
                     ctx,

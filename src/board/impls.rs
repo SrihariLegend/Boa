@@ -33,6 +33,13 @@ impl Board {
 
     #[inline(always)]
     fn put_piece(&mut self, sq: Square, p: Piece, z: &Zobrist) {
+        debug_assert!(
+            p != PIECE_NONE,
+            "put_piece called with PIECE_NONE — would corrupt bitboards"
+        );
+        if p == PIECE_NONE {
+            return;
+        }
         let c = piece_color(p) as usize;
         let pt = piece_type(p) as usize;
         self.pieces[c][pt] |= bb(sq);
@@ -60,6 +67,13 @@ impl Board {
         self.occ[c] &= !bb(sq);
         self.occ_all &= !bb(sq);
         self.sq_piece[sq as usize] = PIECE_NONE;
+        // Clear king_sq if the removed piece was a king.
+        // This prevents stale king_sq from causing gen_moves to generate
+        // moves from an empty square, which would cascade into put_piece(PIECE_NONE)
+        // board corruption.
+        if pt == PieceType::King as usize {
+            self.king_sq[c] = NO_SQUARE;
+        }
         self.hash ^= z.piece_sq[c][pt][sq as usize];
         if pt == PieceType::Pawn as usize {
             self.pawn_hash ^= z.piece_sq[c][pt][sq as usize];
@@ -408,6 +422,68 @@ impl Board {
         self.is_attacked_by(king_sq, color.flip())
     }
 
+    /// Verify that sq_piece and the bitboard arrays are consistent.
+    /// Returns the first inconsistent square found, if any.
+    pub fn verify_consistency(&self) -> Option<String> {
+        for sq in 0..64u8 {
+            let p = self.sq_piece[sq as usize];
+            if p == PIECE_NONE {
+                // sq_piece says empty — check that no bitboard claims this square
+                for c in 0..2usize {
+                    for pt in 0..6usize {
+                        if self.pieces[c][pt] & bb(sq) != 0 {
+                            return Some(format!(
+                                "sq={} sq_piece=NONE but pieces[{}][{}] has bit set. fen={}",
+                                sq, c, pt, self.to_fen()
+                            ));
+                        }
+                    }
+                }
+            } else {
+                let c = piece_color(p) as usize;
+                let pt = piece_type(p) as usize;
+                if self.pieces[c][pt] & bb(sq) == 0 {
+                    return Some(format!(
+                        "sq={} sq_piece={:?} but pieces[{}][{}] bit NOT set. fen={}",
+                        sq, p, c, pt, self.to_fen()
+                    ));
+                }
+                // Check occupancy
+                if self.occ[c] & bb(sq) == 0 {
+                    return Some(format!(
+                        "sq={} sq_piece={:?} but occ[{}] bit NOT set. fen={}",
+                        sq, p, c, self.to_fen()
+                    ));
+                }
+                if self.occ_all & bb(sq) == 0 {
+                    return Some(format!(
+                        "sq={} sq_piece={:?} but occ_all bit NOT set. fen={}",
+                        sq, p, self.to_fen()
+                    ));
+                }
+            }
+            // Check that occupied squares in bitboards have matching sq_piece
+            for c in 0..2usize {
+                if self.occ[c] & bb(sq) != 0 {
+                    let p_at = self.sq_piece[sq as usize];
+                    if p_at == PIECE_NONE {
+                        return Some(format!(
+                            "sq={} occ[{}] has bit but sq_piece=NONE. fen={}",
+                            sq, c, self.to_fen()
+                        ));
+                    }
+                    if piece_color(p_at) as usize != c {
+                        return Some(format!(
+                            "sq={} occ[{}] has bit but sq_piece={:?} has wrong color. fen={}",
+                            sq, c, p_at, self.to_fen()
+                        ));
+                    }
+                }
+            }
+        }
+        None
+    }
+
     pub fn is_attacked_by(&self, sq: Square, attacker_color: Color) -> bool {
         use crate::movegen::*;
         let ac = attacker_color as usize;
@@ -476,6 +552,78 @@ impl Board {
         let r = bb_popcount(self.pieces[ci][PieceType::Rook as usize]) as i32;
         let q = bb_popcount(self.pieces[ci][PieceType::Queen as usize]) as i32;
         n * 320 + b * 330 + r * 500 + q * 900
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::movegen::gen_moves;
+
+    /// Helper: find the legal move matching a UCI string. Unlike move_from_uci,
+    /// this resolves special move flags (castling, en passant) by searching
+    /// the generated move list.
+    fn find_legal_move_for_uci(
+        board: &Board,
+        atk: &crate::movegen::AttackTables,
+        z: &Zobrist,
+        uci: &str,
+    ) -> Option<Move> {
+        let m = move_from_uci(uci)?;
+        let from = move_from(m);
+        let to = move_to(m);
+        let promo_flag = move_flags(m) == MF_PROMOTION;
+        let list = gen_moves(board, atk);
+        for &lm in list.iter() {
+            if move_from(lm) != from || move_to(lm) != to {
+                continue;
+            }
+            if promo_flag
+                && (move_flags(lm) != MF_PROMOTION || move_promo_pt(lm) != move_promo_pt(m))
+            {
+                continue;
+            }
+            let mut b = board.clone();
+            let _undo = b.make_move(lm, z);
+            if !b.is_in_check(b.side.flip()) {
+                return Some(lm);
+            }
+        }
+        None
+    }
+
+    #[test]
+    fn board_consistency_after_problem_position() {
+        let mut board = Board::from_fen(
+            "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+        )
+        .unwrap();
+        assert_eq!(board.verify_consistency(), None, "inconsistent after startpos");
+
+        let z = Zobrist::new();
+        let atk = crate::movegen::AttackTables::init();
+        let moves_str =
+            "e2e4 e7e5 g1f3 b8c6 f1b5 g8f6 e1g1 f6e4 d2d4 e5d4 f1e1 f7f5 f3d4 c6d4 d1d4 f8e7 d4g7";
+        for m_str in moves_str.split_whitespace() {
+            let lm = find_legal_move_for_uci(&board, &atk, &z, m_str)
+                .unwrap_or_else(|| panic!("no legal move for {} in {}", m_str, board.to_fen()));
+            board.make_move(lm, &z);
+            if let Some(err) = board.verify_consistency() {
+                panic!("inconsistent after move {}: {}", m_str, err);
+            }
+        }
+
+        // After Qxg7, neither side is in check
+        assert!(
+            !board.is_in_check(Color::White),
+            "White should NOT be in check: {}",
+            board.to_fen()
+        );
+        assert!(
+            !board.is_in_check(Color::Black),
+            "Black should NOT be in check: {}",
+            board.to_fen()
+        );
     }
 }
 

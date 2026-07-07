@@ -8,7 +8,11 @@ pub struct Bucket {
 impl Bucket {
     pub fn empty() -> Self {
         Bucket {
-            entries: [AtomicTtSlot::empty(), AtomicTtSlot::empty(), AtomicTtSlot::empty()],
+            entries: [
+                AtomicTtSlot::empty(),
+                AtomicTtSlot::empty(),
+                AtomicTtSlot::empty(),
+            ],
         }
     }
 }
@@ -51,7 +55,9 @@ impl TranspositionTable {
         let bucket = &self.buckets[self.index(hash)];
         let key = hash as u32;
 
-        for (i, slot) in bucket.entries.iter().enumerate() { #[allow(unused_variables)] let _ = i;
+        for (i, slot) in bucket.entries.iter().enumerate() {
+            #[allow(unused_variables)]
+            let _ = i;
             let ctrl = slot.ctrl.load(Ordering::Acquire);
             if ctrl == 0 || ctrl & CTRL_BUSY != 0 {
                 continue;
@@ -115,7 +121,9 @@ impl TranspositionTable {
         let mut _replaced_depth = 0;
 
         // Try to find a matching entry or the weakest entry for replacement
-        for (i, slot) in bucket.entries.iter().enumerate() { #[allow(unused_variables)] let _ = i;
+        for (i, slot) in bucket.entries.iter().enumerate() {
+            #[allow(unused_variables)]
+            let _ = i;
             let ctrl = slot.ctrl.load(Ordering::Acquire);
             if ctrl & CTRL_BUSY != 0 {
                 // Slot is busy, cannot use it
@@ -176,9 +184,29 @@ impl TranspositionTable {
 
         // Perform the store operation on the chosen slot
         let slot_to_update = &bucket.entries[replace_slot_index];
-        slot_to_update.ctrl.store(CTRL_BUSY, Ordering::Release); // Acquire lock
-        slot_to_update.data.store(pack_data(score, best, raw_eval), Ordering::Release);
-        slot_to_update.ctrl.store(pack_ctrl(key, depth, bound, age), Ordering::Release); // Release lock
+
+        let mut current_ctrl = slot_to_update.ctrl.load(Ordering::Relaxed);
+        loop {
+            if current_ctrl & CTRL_BUSY != 0 {
+                return; // Another thread is writing, just drop our store
+            }
+            match slot_to_update.ctrl.compare_exchange_weak(
+                current_ctrl,
+                CTRL_BUSY,
+                Ordering::Acquire,
+                Ordering::Relaxed,
+            ) {
+                Ok(_) => break,
+                Err(c) => current_ctrl = c,
+            }
+        }
+
+        slot_to_update
+            .data
+            .store(pack_data(score, best, raw_eval), Ordering::Release);
+        slot_to_update
+            .ctrl
+            .store(pack_ctrl(key, depth, bound, age), Ordering::Release); // Release lock
 
         probe!(
             TtProbe,

@@ -16,7 +16,6 @@ pub(in crate::search) fn compute_lmr_reduction_details(
         || input.depth < LMR_MIN_DEPTH
         || input.is_capture
         || input.is_promo
-        || input.gives_check
         || input.in_check
     {
         return LmrReduction {
@@ -31,24 +30,40 @@ pub(in crate::search) fn compute_lmr_reduction_details(
     let mut reduction = (0.5 + depth_ln * move_ln / LMR_LOG_DIVISOR).floor() as i32;
     let base_reduction = reduction;
 
-    let history_bonus =
-        input.history_score.max(0).clamp(0, LMR_HISTORY_CLAMP) / LMR_HISTORY_NORMALIZER;
+    // 1. Continuation-history-based reduction
+    // history_score now contains sum of butterfly + 1,2,4-ply continuation history
+    let history_bonus = input.history_score / LMR_HISTORY_NORMALIZER;
     reduction -= history_bonus;
+
+    // 2. Correction-aware reduction
+    // When the eval is significantly adjusted, reduce LMR aggressiveness
+    let corr_penalty = (input.corr_val.abs() / 256).clamp(0, 2);
+    reduction -= corr_penalty;
 
     if LMR_NODE_TYPE_SCALING {
         if input.is_pv {
             reduction = (reduction * 3 + 3) / 4;
+            reduction -= 1; // standard PV less reduction
         } else if input.is_cut_node {
             reduction = (reduction * 23 + 10) / 20;
+            reduction += 1; // standard cut node more reduction
         }
     }
 
+    if input.gives_check {
+        reduction -= 1;
+    }
+    if input.is_killer || input.is_counter {
+        reduction -= 1;
+    }
+
     if input.improving {
-        reduction += LMR_IMPROVING_BONUS;
+        reduction -= 1; // "less reduction when improving"
     }
 
     let final_reduction = reduction.clamp(0, input.depth - 2);
-    #[allow(unused_variables)] let new_depth = if final_reduction > 0 {
+    #[allow(unused_variables)]
+    let new_depth = if final_reduction > 0 {
         (input.depth - 1 - final_reduction).max(1)
     } else {
         input.depth - 1

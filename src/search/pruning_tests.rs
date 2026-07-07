@@ -31,19 +31,22 @@ pub(in crate::search) fn lmr_improving_adds_bonus_reduction() {
     let mut input = reducible_lmr_input(8, LMR_FULL_DEPTH_MOVES + 4);
     let base = lmr_reduction_for(input);
     input.improving = true;
-    assert_eq!(lmr_reduction_for(input), base + LMR_IMPROVING_BONUS);
+    assert_eq!(lmr_reduction_for(input), base - 1);
 }
 
 #[test]
 pub(in crate::search) fn lmr_uses_history_to_adjust_reduction() {
     let mut good_history = reducible_lmr_input(12, LMR_FULL_DEPTH_MOVES + 16);
-    good_history.history_score = LMR_HISTORY_CLAMP;
+    good_history.history_score = LMR_HISTORY_NORMALIZER * 4;
     let mut bad_history = good_history;
-    bad_history.history_score = -LMR_HISTORY_CLAMP;
+    bad_history.history_score = -LMR_HISTORY_NORMALIZER * 4;
 
     let neutral_history = lmr_reduction_for(reducible_lmr_input(12, LMR_FULL_DEPTH_MOVES + 16));
-    assert_eq!(lmr_reduction_for(bad_history), neutral_history);
-    assert!(lmr_reduction_for(good_history) < neutral_history);
+    assert_eq!(lmr_reduction_for(bad_history), neutral_history + 4);
+    assert_eq!(
+        lmr_reduction_for(good_history),
+        (neutral_history - 4).max(0)
+    );
 }
 
 // ---- FFP tests ----

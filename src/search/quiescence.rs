@@ -1,7 +1,7 @@
 use super::*;
-use crate::{probe, sample_probe};
 #[cfg(feature = "probes")]
 use crate::tt::bound_str;
+use crate::{probe, sample_probe};
 
 pub(in crate::search) fn quiescence(
     board: &mut Board,
@@ -122,7 +122,14 @@ pub(in crate::search) fn quiescence(
                 return 0;
             }
             if score >= beta {
-                ctx.tt.store(hash, score_to_tt(score, ply), m, 0, Bound::Lower, raw_eval_from_tt.unwrap_or(0));
+                ctx.tt.store(
+                    hash,
+                    score_to_tt(score, ply),
+                    m,
+                    0,
+                    Bound::Lower,
+                    raw_eval_from_tt.unwrap_or(0),
+                );
                 return score;
             }
             if score > alpha {
@@ -133,10 +140,24 @@ pub(in crate::search) fn quiescence(
 
         if legal_moves == 0 {
             let final_score = -(SCORE_MATE - ply as Score);
-            ctx.tt.store(hash, score_to_tt(final_score, ply), MOVE_NONE, 0, Bound::Exact, raw_eval_from_tt.unwrap_or(0));
+            ctx.tt.store(
+                hash,
+                score_to_tt(final_score, ply),
+                MOVE_NONE,
+                0,
+                Bound::Exact,
+                raw_eval_from_tt.unwrap_or(0),
+            );
             return final_score;
         }
-        ctx.tt.store(hash, score_to_tt(alpha, ply), best_move, 0, get_bound(alpha, original_alpha, beta), raw_eval_from_tt.unwrap_or(0));
+        ctx.tt.store(
+            hash,
+            score_to_tt(alpha, ply),
+            best_move,
+            0,
+            get_bound(alpha, original_alpha, beta),
+            raw_eval_from_tt.unwrap_or(0),
+        );
         return alpha;
     }
 
@@ -154,7 +175,14 @@ pub(in crate::search) fn quiescence(
     let mut best_move = tt_move;
 
     if stand_pat >= beta {
-        ctx.tt.store(hash, score_to_tt(stand_pat, ply), MOVE_NONE, 0, Bound::Lower, raw_eval);
+        ctx.tt.store(
+            hash,
+            score_to_tt(stand_pat, ply),
+            MOVE_NONE,
+            0,
+            Bound::Lower,
+            raw_eval,
+        );
         return stand_pat;
     }
     if stand_pat > alpha {
@@ -235,7 +263,8 @@ pub(in crate::search) fn quiescence(
 
         _captures_searched += 1;
         if score >= beta {
-            ctx.tt.store(hash, score_to_tt(score, ply), m, 0, Bound::Lower, raw_eval);
+            ctx.tt
+                .store(hash, score_to_tt(score, ply), m, 0, Bound::Lower, raw_eval);
             return score;
         }
         if score > alpha {
@@ -244,7 +273,14 @@ pub(in crate::search) fn quiescence(
         }
     }
 
-    ctx.tt.store(hash, score_to_tt(alpha, ply), best_move, 0, get_bound(alpha, original_alpha, beta), raw_eval);
+    ctx.tt.store(
+        hash,
+        score_to_tt(alpha, ply),
+        best_move,
+        0,
+        get_bound(alpha, original_alpha, beta),
+        raw_eval,
+    );
     sample_probe!(
         32,
         Quiescence,
