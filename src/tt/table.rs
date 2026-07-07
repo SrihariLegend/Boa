@@ -160,9 +160,16 @@ impl TranspositionTable {
                     break;
                 }
 
-                // Calculate quality for replacement
+                // Calculate quality for replacement.
+                // Depth-0 (qsearch) entries are always preferred for eviction
+                // when the incoming entry has depth > 0 — qsearch entries only
+                // help other qsearch nodes and should never block main-search data.
                 let age_distance = (age.wrapping_sub(current.age)) as i32;
-                let quality = current.depth as i32 - 4 * age_distance;
+                let quality = if current.depth == 0 && depth > 0 {
+                    -i32::MAX + 1 // evict before any main-search entry, but after empty slots
+                } else {
+                    current.depth as i32 - 4 * age_distance
+                };
                 if quality < _best_quality {
                     _best_quality = quality;
                     replace_slot_index = i;
