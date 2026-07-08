@@ -737,6 +737,43 @@ pub enum ProbeEvent {
     ProbCut(ProbCutEvent),
 
     /// Sentinel: tells the writer thread to flush and end the file.
+
+    #[cfg_attr(feature = "probes", serde(rename = "sx"))]
+    SingularExtension(SingularExtensionEvent),
+    #[cfg_attr(feature = "probes", serde(rename = "te"))]
+    ThreatExtension(ThreatExtensionEvent),
+    #[cfg_attr(feature = "probes", serde(rename = "re"))]
+    RecaptureExtension(RecaptureExtensionEvent),
     #[cfg_attr(feature = "probes", serde(rename = "xx"))]
     Finish,
+}
+
+#[cfg_attr(feature = "probes", derive(Serialize))]
+pub struct SingularExtensionEvent {
+    #[cfg_attr(feature = "probes", serde(rename = "d"))]
+    pub depth: i32,
+    #[cfg_attr(feature = "probes", serde(rename = "tt"))]
+    pub tt_score: i32,
+    #[cfg_attr(feature = "probes", serde(rename = "sb"))]
+    pub singular_beta: i32,
+    #[cfg_attr(feature = "probes", serde(rename = "ss"))]
+    pub singular_score: i32,
+    #[cfg_attr(feature = "probes", serde(rename = "ext"))]
+    pub extension: i32,
+    #[cfg_attr(feature = "probes", serde(rename = "mc"))]
+    pub multi_cut: bool,
+}
+
+#[cfg_attr(feature = "probes", derive(Serialize))]
+pub struct ThreatExtensionEvent {
+    #[cfg_attr(feature = "probes", serde(rename = "d"))]
+    pub depth: i32,
+    #[cfg_attr(feature = "probes", serde(rename = "lr"))]
+    pub lmr_reduction: i32,
+}
+
+#[cfg_attr(feature = "probes", derive(Serialize))]
+pub struct RecaptureExtensionEvent {
+    #[cfg_attr(feature = "probes", serde(rename = "d"))]
+    pub depth: i32,
 }

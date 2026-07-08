@@ -263,6 +263,7 @@ pub(in crate::search) fn alpha_beta(
     // Threat extension (6.3)
     if ply > 0 && ctx.stack[ply - 1].lmr_reduction >= 3 && !improving && depth >= 2 {
         depth += 1;
+        probe!(ThreatExtension, ThreatExtensionEvent { depth: depth, lmr_reduction: ctx.stack[ply - 1].lmr_reduction });
     }
     // ---- Pruning heuristics (skip in check and PV nodes) ----
 
@@ -338,6 +339,9 @@ pub(in crate::search) fn alpha_beta(
             let mut final_prob_score = None;
             for i in 0..list.count {
                 let m = list.moves[i];
+        if Some(m) == excluded_move {
+            continue;
+        }
                 let to = move_to(m);
                 let is_capture =
                     board.sq_piece[to as usize] != PIECE_NONE || move_flags(m) == MF_EN_PASSANT;
@@ -413,6 +417,9 @@ pub(in crate::search) fn alpha_beta(
     for i in 0..list.count {
         list.pick_best(i);
         let m = list.moves[i];
+        if Some(m) == excluded_move {
+            continue;
+        }
         let side_to_move = board.side;
         let from = move_from(m);
         let to = move_to(m);
@@ -481,7 +488,7 @@ pub(in crate::search) fn alpha_beta(
                         }
                     } else if singular_beta >= beta {
                         // Multi-cut
-                        return singular_beta;
+                        return beta;
                     }
                 }
             }
@@ -495,6 +502,7 @@ pub(in crate::search) fn alpha_beta(
                 && move_to(m) == move_to(prev_move_info)
             {
                 extension = 1;
+                probe!(RecaptureExtension, RecaptureExtensionEvent { depth });
             }
         }
 
