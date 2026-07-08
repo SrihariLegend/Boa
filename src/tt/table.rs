@@ -247,7 +247,7 @@ impl TranspositionTable {
 
     pub fn hashfull(&self) -> usize {
         let age = self.age.load(Ordering::Relaxed);
-        self.buckets
+        let count = self.buckets
             .iter()
             .take(1000) // Sample first 1000 buckets
             .flat_map(|bucket| bucket.entries.iter())
@@ -259,6 +259,10 @@ impl TranspositionTable {
                 let entry = unpack_entry(ctrl, slot.data.load(Ordering::Relaxed));
                 entry.age == age && entry.bound != Bound::None
             })
-            .count()
+            .count();
+        
+        // Spec 14.4: Each bucket has 3 entries. Count all 3, sum across all 1000 buckets.
+        // Return sum * 1000 / 3000 to produce a value in 0-1000 (permille) standard UCI format.
+        (count * 1000) / 3000
     }
 }

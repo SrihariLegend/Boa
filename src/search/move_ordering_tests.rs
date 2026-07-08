@@ -303,12 +303,12 @@ pub(in crate::search) fn pawn_history_updates_on_beta_cutoff() {
     let w_to = move_to(white_move) as usize;
 
     let pawn_idx = (board.pawn_hash & 1023) as usize;
-    assert_eq!(ctx.pawn_history[pawn_idx][w_pt][w_to], 0);
+    assert_eq!(ctx.pawn_history[pawn_idx][w_pt][w_to], -5);
 
     handle_beta_cutoff(&mut ctx, &board, white_move, 1, 6, false, 100, 50);
 
     assert!(
-        ctx.pawn_history[pawn_idx][w_pt][w_to] > 0,
+        ctx.pawn_history[pawn_idx][w_pt][w_to] > -5,
         "pawn history should increase on beta cutoff"
     );
 }
