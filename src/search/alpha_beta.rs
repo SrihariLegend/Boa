@@ -458,6 +458,7 @@ pub(in crate::search) fn alpha_beta(
         // ---- Singular extensions (6.1) & Multi-cut (6.2) ----
         if depth >= 8 && m == tt_move && excluded_move.is_none() && ply > 0 && !in_check {
             if let Some(entry) = tt_entry {
+                println!("SE check 2: bound={:?}, entry_depth={}", entry.bound, entry.depth);
                 if entry.depth >= (depth - 3) as i8
                     && (entry.bound == Bound::Lower || entry.bound == Bound::Exact)
                     && !is_mate_score(entry.score)
@@ -482,12 +483,28 @@ pub(in crate::search) fn alpha_beta(
                     );
                     ctx.history_hashes.push(board.hash);
 
+                    let mut multi_cut = false;
+                    
                     if singular_score < singular_beta {
                         if ply < ctx.root_depth as usize + 8 {
+                            
                             extension = 1;
                         }
                     } else if singular_beta >= beta {
-                        // Multi-cut
+                        multi_cut = true;
+                    }
+                    probe!(
+                        SingularExtension,
+                        SingularExtensionEvent {
+                            depth: depth,
+                            tt_score: tt_score,
+                            singular_beta: singular_beta,
+                            singular_score: singular_score,
+                            extension: extension,
+                            multi_cut: multi_cut,
+                        }
+                    );
+                    if multi_cut {
                         return beta;
                     }
                 }
