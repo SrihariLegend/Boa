@@ -62,8 +62,12 @@ pub(in crate::search) fn static_exchange_eval(board: &Board, atk: &AttackTables,
     let mut victim_value = moved_type.material_value();
     let target_bb = bb(to);
     while depth + 1 < gain.len() {
+        let king_sq = board.king_sq[side as usize];
+        if king_sq == 64 {
+            break;
+        }
         let Some((attacker_sq, attacker_type)) =
-            least_valuable_attacker(to, side, occ, &pieces, atk, board.king_sq[side as usize])
+            least_valuable_attacker(to, side, occ, &pieces, atk, king_sq)
         else {
             break;
         };

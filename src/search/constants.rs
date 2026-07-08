@@ -106,10 +106,9 @@ pub(in crate::search) const DEFAULT_MOVES_TO_GO: i64 = 30;
 /// Time management: minimum time allocation in milliseconds.
 pub(in crate::search) const MIN_MOVE_TIME_MS: i64 = 10;
 
-/// Time management: hard limit multiplier and additive cap.
-/// Prevents flagging by limiting total time to soft_budget * multiplier, capped.
+/// Time management: hard limit multiplier.
+/// Prevents flagging by limiting total time to soft_budget * multiplier.
 pub(in crate::search) const HARD_TIME_MULTIPLIER: u64 = 5;
-pub(in crate::search) const HARD_TIME_ADDITIVE_CAP: u64 = 2000;
 
 /// Time management: reserve for GUI/process latency per move. Without this,
 /// the engine budgets 100% of the clock and forfeits on time at fast TCs.

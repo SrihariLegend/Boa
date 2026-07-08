@@ -544,6 +544,30 @@ pub struct RootEvent {
 // 21. Time Management — typ:"tm"
 // ============================================================
 #[cfg_attr(feature = "probes", derive(Serialize))]
+pub struct TimeIterationEvent {
+    #[cfg_attr(feature = "probes", serde(rename = "d"))]
+    pub depth: i32,
+    #[cfg_attr(feature = "probes", serde(rename = "st"))]
+    pub stability: u32,
+    #[cfg_attr(feature = "probes", serde(rename = "sf"))]
+    pub stability_factor: f64,
+    #[cfg_attr(feature = "probes", serde(rename = "sd"))]
+    pub score_delta: i32,
+    #[cfg_attr(feature = "probes", serde(rename = "sc"))]
+    pub score_factor: f64,
+    #[cfg_attr(feature = "probes", serde(rename = "nb"))]
+    pub not_best_pct: f64,
+    #[cfg_attr(feature = "probes", serde(rename = "nf"))]
+    pub node_factor: f64,
+    #[cfg_attr(feature = "probes", serde(rename = "cf"))]
+    pub combined_factor: f64,
+    #[cfg_attr(feature = "probes", serde(rename = "at"))]
+    pub adjusted_time: u64,
+    #[cfg_attr(feature = "probes", serde(rename = "dc"))]
+    pub decision: String,
+}
+
+#[cfg_attr(feature = "probes", derive(Serialize))]
 pub struct TimeManagementEvent {
     #[cfg_attr(feature = "probes", serde(rename = "al"))]
     pub allocated: u64,
@@ -721,6 +745,8 @@ pub enum ProbeEvent {
     History(HistoryEvent),
     #[cfg_attr(feature = "probes", serde(rename = "rt"))]
     Root(RootEvent),
+    #[cfg_attr(feature = "probes", serde(rename = "ti"))]
+    TimeIteration(TimeIterationEvent),
     #[cfg_attr(feature = "probes", serde(rename = "tm"))]
     TimeManagement(TimeManagementEvent),
     #[cfg_attr(feature = "probes", serde(rename = "tz"))]

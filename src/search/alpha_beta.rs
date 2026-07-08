@@ -263,7 +263,13 @@ pub(in crate::search) fn alpha_beta(
     // Threat extension (6.3)
     if ply > 0 && ctx.stack[ply - 1].lmr_reduction >= 3 && !improving && depth >= 2 {
         depth += 1;
-        probe!(ThreatExtension, ThreatExtensionEvent { depth: depth, lmr_reduction: ctx.stack[ply - 1].lmr_reduction });
+        probe!(
+            ThreatExtension,
+            ThreatExtensionEvent {
+                depth: depth,
+                lmr_reduction: ctx.stack[ply - 1].lmr_reduction
+            }
+        );
     }
     // ---- Pruning heuristics (skip in check and PV nodes) ----
 
@@ -339,9 +345,9 @@ pub(in crate::search) fn alpha_beta(
             let mut final_prob_score = None;
             for i in 0..list.count {
                 let m = list.moves[i];
-        if Some(m) == excluded_move {
-            continue;
-        }
+                if Some(m) == excluded_move {
+                    continue;
+                }
                 let to = move_to(m);
                 let is_capture =
                     board.sq_piece[to as usize] != PIECE_NONE || move_flags(m) == MF_EN_PASSANT;
@@ -354,6 +360,10 @@ pub(in crate::search) fn alpha_beta(
                         ctx.stack[ply].is_tactical = true;
                     }
                     let undo = board.make_move(m, ctx.z);
+                    if board.is_in_check(board.side.flip()) {
+                        board.unmake_move(m, &undo, ctx.z);
+                        continue;
+                    }
                     let mut prob_pv = Vec::new();
                     let prob_score = -alpha_beta(
                         board,
@@ -483,10 +493,9 @@ pub(in crate::search) fn alpha_beta(
                     ctx.history_hashes.push(board.hash);
 
                     let mut multi_cut = false;
-                    
+
                     if singular_score < singular_beta {
                         if ply < ctx.root_depth as usize + 8 {
-                            
                             extension = 1;
                         }
                     } else if singular_beta >= beta {
@@ -650,6 +659,8 @@ pub(in crate::search) fn alpha_beta(
             ctx.stack[ply].lmr_reduction = reduction;
         }
 
+        let nodes_before = ctx.nodes;
+
         let mut child_pv = Vec::new();
         let score = if moves_searched == 0 {
             -alpha_beta(
@@ -717,6 +728,16 @@ pub(in crate::search) fn alpha_beta(
             }
             s
         };
+
+        let nodes_after = ctx.nodes;
+        if ply == 0 {
+            let diff = nodes_after - nodes_before;
+            if let Some(pos) = ctx.root_move_nodes.iter().position(|&(mv, _)| mv == m) {
+                ctx.root_move_nodes[pos].1 += diff;
+            } else {
+                ctx.root_move_nodes.push((m, diff));
+            }
+        }
 
         board.unmake_move(m, &undo, ctx.z);
         moves_searched += 1;
