@@ -360,6 +360,10 @@ pub(in crate::search) fn alpha_beta(
                         ctx.stack[ply].is_tactical = true;
                     }
                     let undo = board.make_move(m, ctx.z);
+                    if board.is_in_check(board.side.flip()) {
+                        board.unmake_move(m, &undo, ctx.z);
+                        continue;
+                    }
                     let mut prob_pv = Vec::new();
                     let prob_score = -alpha_beta(
                         board,

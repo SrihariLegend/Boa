@@ -229,38 +229,44 @@ pub(in crate::search) fn search_single(
         let node_factor = 0.55 + 2.0 * not_best_pct;
 
         let combined_factor = stability_factor * score_factor * node_factor;
-        let adjusted_time = ((time_budget as f64) * combined_factor) as u64;
-        let adjusted_time = adjusted_time.clamp(MIN_MOVE_TIME_MS as u64, hard_limit);
+        let adjusted_time = if time_budget > 0 {
+            let t = ((time_budget as f64) * combined_factor) as u64;
+            t.clamp(MIN_MOVE_TIME_MS as u64, hard_limit.max(MIN_MOVE_TIME_MS as u64))
+        } else {
+            0
+        };
 
         #[allow(unused_variables, unused_assignments)]
         let mut decision = "continue".to_string();
         let mut early_stop = false;
 
-        // Easy move detection (7.5)
-        if stability_factor < 0.85 && node_factor < 0.85 && depth >= 3 {
-            decision = "easy_move".to_string();
-            early_stop = true;
-            let _ = decision;
-        }
+        if time_budget > 0 {
+            // Easy move detection (7.5)
+            if stability_factor < 0.85 && node_factor < 0.85 && depth >= 3 {
+                decision = "easy_move".to_string();
+                early_stop = true;
+                let _ = decision;
+            }
 
-        if time_budget > 0 && elapsed >= adjusted_time {
-            decision = "soft_stop".to_string();
-            early_stop = true;
-            let _ = decision;
-        }
+            if elapsed >= adjusted_time {
+                decision = "soft_stop".to_string();
+                early_stop = true;
+                let _ = decision;
+            }
 
-        // Node-time estimation (7.6)
-        let branching_factor = if prev_iteration_nodes > 0 {
-            (iteration_nodes as f64 / prev_iteration_nodes as f64).clamp(1.5, 4.0)
-        } else {
-            2.0
-        };
-        let estimated_time = (iteration_time as f64 * branching_factor) as u64;
+            // Node-time estimation (7.6)
+            let branching_factor = if prev_iteration_nodes > 0 {
+                (iteration_nodes as f64 / prev_iteration_nodes as f64).clamp(1.5, 4.0)
+            } else {
+                2.0
+            };
+            let estimated_time = (iteration_time as f64 * branching_factor) as u64;
 
-        if time_budget > 0 && elapsed + estimated_time > hard_limit {
-            decision = "hard_stop".to_string();
-            early_stop = true;
-            let _ = decision;
+            if elapsed + estimated_time > hard_limit {
+                decision = "hard_stop".to_string();
+                early_stop = true;
+                let _ = decision;
+            }
         }
 
         probe!(
