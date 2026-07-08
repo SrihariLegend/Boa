@@ -91,6 +91,13 @@ fn depth_zero_does_not_block_deeper_cross_key() {
 
     // At least one of the depth-0 entries must have been evicted
     // (3 depth-0 + 1 depth-5 = 4 entries → one must go).
-    let survivors = [0u64, 1, 2].iter().filter(|h| tt.probe(**h).is_some()).count();
-    assert!(survivors <= 2, "at least one depth-0 entry should be evicted, but {} survived", survivors);
+    let survivors = [0u64, 1, 2]
+        .iter()
+        .filter(|h| tt.probe(**h).is_some())
+        .count();
+    assert!(
+        survivors <= 2,
+        "at least one depth-0 entry should be evicted, but {} survived",
+        survivors
+    );
 }

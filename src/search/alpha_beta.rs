@@ -13,6 +13,7 @@ pub(in crate::search) fn alpha_beta(
         depth,
         ply,
         is_pv,
+        excluded_move,
     } = node;
 
     if ctx.should_stop() {
@@ -142,8 +143,16 @@ pub(in crate::search) fn alpha_beta(
     };
 
     // TT probe
-    let (mut tt_move, tt_cutoff, tt_raw_eval) =
-        try_tt_cutoff(ctx, board.hash, depth, alpha, beta, is_pv, ply);
+    let (mut tt_move, tt_cutoff, tt_entry) = try_tt_cutoff(
+        ctx,
+        board.hash,
+        depth,
+        alpha,
+        beta,
+        is_pv,
+        excluded_move,
+        ply,
+    );
     if let Some(s) = tt_cutoff {
         ctx.history_hashes.pop();
         return s;
@@ -168,6 +177,7 @@ pub(in crate::search) fn alpha_beta(
                 depth: iid_depth,
                 ply,
                 is_pv,
+                excluded_move: None,
             },
             &mut iid_pv,
         );
@@ -201,9 +211,9 @@ pub(in crate::search) fn alpha_beta(
     // Static evaluation for pruning heuristics — reuse TT raw_eval if available
     let mut static_eval = 0;
     if !in_check {
-        static_eval = if let Some(re) = tt_raw_eval {
-            if re != 0 {
-                re as Score
+        static_eval = if let Some(re) = tt_entry {
+            if re.raw_eval != 0 {
+                re.raw_eval as Score
             } else {
                 evaluate(
                     board,
@@ -248,6 +258,11 @@ pub(in crate::search) fn alpha_beta(
     };
     if ply < MAX_PLY {
         ctx.stack[ply].static_eval = if !in_check { Some(static_eval) } else { None };
+    }
+    let mut depth = depth;
+    // Threat extension (6.3)
+    if ply > 0 && ctx.stack[ply - 1].lmr_reduction >= 3 && !improving && depth >= 2 {
+        depth += 1;
     }
     // ---- Pruning heuristics (skip in check and PV nodes) ----
 
@@ -345,6 +360,7 @@ pub(in crate::search) fn alpha_beta(
                             depth: depth - 4,
                             ply: ply + 1,
                             is_pv: false,
+                            excluded_move: None,
                         },
                         &mut prob_pv,
                     );
@@ -427,6 +443,58 @@ pub(in crate::search) fn alpha_beta(
                 history_score -= 800_000;
             } else if is_counter {
                 history_score -= 750_000;
+            }
+        }
+
+        let mut extension = 0;
+
+        // ---- Singular extensions (6.1) & Multi-cut (6.2) ----
+        if depth >= 8 && m == tt_move && excluded_move.is_none() && ply > 0 && !in_check {
+            if let Some(entry) = tt_entry {
+                if entry.depth >= (depth - 3) as i8
+                    && (entry.bound == Bound::Lower || entry.bound == Bound::Exact)
+                    && !is_mate_score(entry.score)
+                {
+                    let tt_score = score_from_tt(entry.score, ply);
+                    let singular_beta = tt_score - 2 * depth;
+
+                    let mut se_pv = Vec::new();
+                    ctx.history_hashes.pop();
+                    let singular_score = alpha_beta(
+                        board,
+                        ctx,
+                        SearchNode {
+                            alpha: singular_beta - 1,
+                            beta: singular_beta,
+                            depth: (depth - 1) / 2,
+                            ply,
+                            is_pv: false,
+                            excluded_move: Some(m),
+                        },
+                        &mut se_pv,
+                    );
+                    ctx.history_hashes.push(board.hash);
+
+                    if singular_score < singular_beta {
+                        if ply < ctx.root_depth as usize + 8 {
+                            extension = 1;
+                        }
+                    } else if singular_beta >= beta {
+                        // Multi-cut
+                        return singular_beta;
+                    }
+                }
+            }
+        }
+
+        // ---- Recapture extension (6.4) ----
+        if is_pv && ply > 0 && is_capture {
+            let prev_move_info = ctx.stack[ply - 1].current_move;
+            if prev_move_info != MOVE_NONE
+                && ctx.stack[ply - 1].is_tactical
+                && move_to(m) == move_to(prev_move_info)
+            {
+                extension = 1;
             }
         }
 
@@ -543,9 +611,9 @@ pub(in crate::search) fn alpha_beta(
         }
 
         let new_depth = if reduction > 0 {
-            (depth - 1 - reduction).max(0)
+            (depth - 1 + extension - reduction).max(0)
         } else {
-            depth - 1
+            depth - 1 + extension
         };
         let pre_alpha = alpha;
 
@@ -554,6 +622,7 @@ pub(in crate::search) fn alpha_beta(
         if ply < 128 {
             ctx.stack[ply].current_move = m;
             ctx.stack[ply].is_tactical = is_capture || is_promo;
+            ctx.stack[ply].lmr_reduction = reduction;
         }
 
         let mut child_pv = Vec::new();
@@ -567,6 +636,7 @@ pub(in crate::search) fn alpha_beta(
                     depth: depth - 1,
                     ply: ply + 1,
                     is_pv,
+                    excluded_move: None,
                 },
                 &mut child_pv,
             )
@@ -580,6 +650,7 @@ pub(in crate::search) fn alpha_beta(
                     depth: new_depth,
                     ply: ply + 1,
                     is_pv: false,
+                    excluded_move: None,
                 },
                 &mut child_pv,
             );
@@ -614,6 +685,7 @@ pub(in crate::search) fn alpha_beta(
                         depth: research_depth,
                         ply: ply + 1,
                         is_pv,
+                        excluded_move: None,
                     },
                     &mut child_pv,
                 );

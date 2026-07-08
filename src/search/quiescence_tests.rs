@@ -43,6 +43,7 @@ pub(in crate::search) fn depth_zero_in_check_detects_mate() {
             depth: 0,
             ply: 0,
             is_pv: true,
+            excluded_move: None,
         },
         &mut pv,
     );

@@ -135,6 +135,7 @@ pub(in crate::search) fn quiet_history_distribution_is_not_immediately_saturated
             depth: 6,
             ply: 0,
             is_pv: true,
+            excluded_move: None,
         },
         &mut pv,
     );

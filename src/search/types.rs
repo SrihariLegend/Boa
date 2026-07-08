@@ -45,6 +45,7 @@ pub(in crate::search) struct SearchNode {
     pub(in crate::search) depth: i32,
     pub(in crate::search) ply: usize,
     pub(in crate::search) is_pv: bool,
+    pub(in crate::search) excluded_move: Option<Move>,
 }
 
 #[derive(Clone, Copy)]

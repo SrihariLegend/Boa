@@ -106,6 +106,7 @@ pub fn quick_search(
             depth,
             ply: 0,
             is_pv: true,
+            excluded_move: None,
         },
         &mut pv,
     )

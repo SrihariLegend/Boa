@@ -127,6 +127,7 @@ pub struct PlyInfo {
     pub current_move: Move,
     pub is_tactical: bool,
     pub static_eval: Option<Score>,
+    pub lmr_reduction: i32,
     /// (piece_type as usize, to_sq as usize) of the move made at this ply.
     /// Used by continuation history — the child reads this from `stack[ply-1]`
     /// to get the previous move's piece and destination.

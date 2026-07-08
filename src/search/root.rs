@@ -325,6 +325,7 @@ pub(in crate::search) fn aspiration_search(
                 depth: depth as i32,
                 ply: 0,
                 is_pv: true,
+                excluded_move: None,
             },
             pv,
         );
@@ -344,6 +345,7 @@ pub(in crate::search) fn aspiration_search(
                 depth: depth as i32,
                 ply: 0,
                 is_pv: true,
+                excluded_move: None,
             },
             pv,
         );
@@ -402,6 +404,7 @@ pub(in crate::search) fn aspiration_search(
             depth: depth as i32,
             ply: 0,
             is_pv: true,
+            excluded_move: None,
         },
         pv,
     )
