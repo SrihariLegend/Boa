@@ -75,6 +75,7 @@ pub(in crate::search) fn search_single(
         ctx.tt.new_search();
     }
     ctx.nodes = 0;
+    ctx.root_move_nodes.clear();
     ctx.stopped = false;
     ctx.stats = SearchStats::default();
     ctx.root_color = board.side;
@@ -139,6 +140,12 @@ pub(in crate::search) fn search_single(
         }
     }
 
+    let mut pv_stability: u32 = 0;
+    let mut prev_best_move = MOVE_NONE;
+    let mut prev_score = -SCORE_INF;
+    let mut prev_iteration_time = 0;
+    let mut prev_iteration_nodes = 0;
+
     for depth in 1..=ctx.limits.max_depth {
         ctx.root_depth = depth as i32;
         let mut root_pv = Vec::new();
@@ -194,13 +201,92 @@ pub(in crate::search) fn search_single(
             }
         );
 
-        // Time management: stop if we've used our soft budget
-        if time_budget > 0 && ctx.elapsed_ms() >= time_budget {
+        let iteration_nodes = ctx.nodes.saturating_sub(prev_iteration_nodes);
+        let iteration_time = elapsed.saturating_sub(prev_iteration_time);
+
+        let same_best_move = depth > 1 && best_move == prev_best_move;
+        pv_stability = if same_best_move {
+            (pv_stability + 1).min(10)
+        } else {
+            0
+        };
+
+        let stability_factor = 1.3 - 0.05 * (pv_stability as f64);
+
+        let score_delta = if depth > 1 { prev_score - score } else { 0 };
+        let score_factor = (0.75 + 0.05 * (score_delta as f64) / 100.0).clamp(0.75, 1.5);
+
+        let total_nodes = ctx.nodes;
+        let mut best_move_nodes = 0;
+        if let Some(&(_, n)) = ctx.root_move_nodes.iter().find(|&&(mv, _)| mv == best_move) {
+            best_move_nodes = n;
+        }
+        let not_best_pct = if total_nodes > 0 {
+            1.0 - (best_move_nodes as f64 / total_nodes as f64)
+        } else {
+            1.0
+        };
+        let node_factor = 0.55 + 2.0 * not_best_pct;
+
+        let combined_factor = stability_factor * score_factor * node_factor;
+        let adjusted_time = ((time_budget as f64) * combined_factor) as u64;
+        let adjusted_time = adjusted_time.clamp(MIN_MOVE_TIME_MS as u64, hard_limit);
+
+        #[allow(unused_variables, unused_assignments)]
+        let mut decision = "continue".to_string();
+        let mut early_stop = false;
+
+        // Easy move detection (7.5)
+        if stability_factor < 0.85 && node_factor < 0.85 && depth >= 3 {
+            decision = "easy_move".to_string();
+            early_stop = true;
+            let _ = decision;
+        }
+
+        if time_budget > 0 && elapsed >= adjusted_time {
+            decision = "soft_stop".to_string();
+            early_stop = true;
+            let _ = decision;
+        }
+
+        // Node-time estimation (7.6)
+        let branching_factor = if prev_iteration_nodes > 0 {
+            (iteration_nodes as f64 / prev_iteration_nodes as f64).clamp(1.5, 4.0)
+        } else {
+            2.0
+        };
+        let estimated_time = (iteration_time as f64 * branching_factor) as u64;
+
+        if time_budget > 0 && elapsed + estimated_time > hard_limit {
+            decision = "hard_stop".to_string();
+            early_stop = true;
+            let _ = decision;
+        }
+
+        probe!(
+            TimeIteration,
+            TimeIterationEvent {
+                depth: depth as i32,
+                stability: pv_stability,
+                stability_factor: stability_factor,
+                score_delta: score_delta,
+                score_factor: score_factor,
+                not_best_pct: not_best_pct,
+                node_factor: node_factor,
+                combined_factor: combined_factor,
+                adjusted_time: adjusted_time,
+                decision: decision.clone(),
+            }
+        );
+
+        if is_mate_score(score) || early_stop {
             break;
         }
-        if is_mate_score(score) {
-            break;
-        }
+
+        prev_best_move = best_move;
+        prev_score = score;
+        prev_iteration_time = elapsed;
+        prev_iteration_nodes = ctx.nodes;
     }
 
     // Never return MOVE_NONE: if the search was stopped before even depth 1

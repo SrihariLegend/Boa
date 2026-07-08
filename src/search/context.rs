@@ -76,6 +76,7 @@ pub struct SearchContext<'a> {
     pub history_hashes: Vec<u64>,
 
     // Per-search stats
+    pub root_move_nodes: Vec<(Move, u64)>,
     pub nodes: u64,
     pub stopped: bool,
     pub root_depth: i32, // Current iteration depth (for check extension cap)
@@ -168,6 +169,7 @@ impl<'a> SearchContext<'a> {
             syzygy,
             root_color: Color::White, // set by search() before iterating
             game_id,
+            root_move_nodes: Vec::with_capacity(64),
             nmp_in_progress: false,
             search_id,
             history_hashes,
