@@ -31,7 +31,9 @@ pub fn run() {
             for line in stdin.lock().lines() {
                 let Ok(line) = line else { break };
                 let t = line.trim();
-                if t == "stop" || t == "quit" {
+                if t.starts_with("go") {
+                    stop_flag.store(false, Ordering::Relaxed);
+                } else if t == "stop" || t == "quit" {
                     stop_flag.store(true, Ordering::Relaxed);
                 }
                 if tx.send(line).is_err() {
@@ -93,7 +95,6 @@ pub fn run() {
             }
             Some("go") => {
                 search_id = search_id.wrapping_add(1);
-                stop_flag.store(false, std::sync::atomic::Ordering::Relaxed);
                 handle_go(
                     tokens,
                     GoContext {
