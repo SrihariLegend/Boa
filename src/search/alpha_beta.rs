@@ -505,6 +505,7 @@ pub(in crate::search) fn alpha_beta(
                         }
                     );
                     if multi_cut {
+                        ctx.history_hashes.pop();
                         return beta;
                     }
                 }
