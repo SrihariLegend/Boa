@@ -434,7 +434,10 @@ impl Board {
                         if self.pieces[c][pt] & bb(sq) != 0 {
                             return Some(format!(
                                 "sq={} sq_piece=NONE but pieces[{}][{}] has bit set. fen={}",
-                                sq, c, pt, self.to_fen()
+                                sq,
+                                c,
+                                pt,
+                                self.to_fen()
                             ));
                         }
                     }
@@ -445,20 +448,29 @@ impl Board {
                 if self.pieces[c][pt] & bb(sq) == 0 {
                     return Some(format!(
                         "sq={} sq_piece={:?} but pieces[{}][{}] bit NOT set. fen={}",
-                        sq, p, c, pt, self.to_fen()
+                        sq,
+                        p,
+                        c,
+                        pt,
+                        self.to_fen()
                     ));
                 }
                 // Check occupancy
                 if self.occ[c] & bb(sq) == 0 {
                     return Some(format!(
                         "sq={} sq_piece={:?} but occ[{}] bit NOT set. fen={}",
-                        sq, p, c, self.to_fen()
+                        sq,
+                        p,
+                        c,
+                        self.to_fen()
                     ));
                 }
                 if self.occ_all & bb(sq) == 0 {
                     return Some(format!(
                         "sq={} sq_piece={:?} but occ_all bit NOT set. fen={}",
-                        sq, p, self.to_fen()
+                        sq,
+                        p,
+                        self.to_fen()
                     ));
                 }
             }
@@ -469,13 +481,18 @@ impl Board {
                     if p_at == PIECE_NONE {
                         return Some(format!(
                             "sq={} occ[{}] has bit but sq_piece=NONE. fen={}",
-                            sq, c, self.to_fen()
+                            sq,
+                            c,
+                            self.to_fen()
                         ));
                     }
                     if piece_color(p_at) as usize != c {
                         return Some(format!(
                             "sq={} occ[{}] has bit but sq_piece={:?} has wrong color. fen={}",
-                            sq, c, p_at, self.to_fen()
+                            sq,
+                            c,
+                            p_at,
+                            self.to_fen()
                         ));
                     }
                 }
@@ -594,11 +611,13 @@ mod tests {
 
     #[test]
     fn board_consistency_after_problem_position() {
-        let mut board = Board::from_fen(
-            "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
-        )
-        .unwrap();
-        assert_eq!(board.verify_consistency(), None, "inconsistent after startpos");
+        let mut board =
+            Board::from_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1").unwrap();
+        assert_eq!(
+            board.verify_consistency(),
+            None,
+            "inconsistent after startpos"
+        );
 
         let z = Zobrist::new();
         let atk = crate::movegen::AttackTables::init();

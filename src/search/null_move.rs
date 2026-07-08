@@ -58,6 +58,7 @@ pub(in crate::search) fn try_null_move(
             depth: null_depth,
             ply: ply + 1,
             is_pv: false,
+            excluded_move: None,
         },
         &mut null_pv,
     );
@@ -81,6 +82,7 @@ pub(in crate::search) fn try_null_move(
                 depth: v_depth,
                 ply,
                 is_pv: false,
+                excluded_move: None,
             },
             &mut v_pv,
         );

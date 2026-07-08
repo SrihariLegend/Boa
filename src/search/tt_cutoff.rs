@@ -1,5 +1,6 @@
 use super::*;
 use crate::probe;
+use crate::tt::TtEntry;
 
 pub(in crate::search) fn try_tt_cutoff(
     ctx: &mut SearchContext,
@@ -8,8 +9,9 @@ pub(in crate::search) fn try_tt_cutoff(
     alpha: Score,
     beta: Score,
     is_pv: bool,
+    excluded_move: Option<Move>,
     ply: usize,
-) -> (Move, Option<Score>, Option<i16>) {
+) -> (Move, Option<Score>, Option<TtEntry>) {
     ctx.stats.tt_probes += 1;
     let entry = match ctx.tt.probe(hash) {
         Some(e) => e,
@@ -17,10 +19,12 @@ pub(in crate::search) fn try_tt_cutoff(
     };
     ctx.stats.tt_hits += 1;
     let tt_move = entry.best;
-    let tt_raw_eval = entry.raw_eval;
+    if Some(tt_move) == excluded_move && tt_move != MOVE_NONE {
+        return (tt_move, None, Some(entry));
+    }
 
     if is_pv || entry.depth < depth as i8 {
-        return (tt_move, None, Some(tt_raw_eval));
+        return (tt_move, None, Some(entry));
     }
 
     let s = score_from_tt(entry.score, ply);
@@ -51,7 +55,7 @@ pub(in crate::search) fn try_tt_cutoff(
     );
     if cutoff {
         ctx.stats.tt_cutoffs += 1;
-        return (tt_move, Some(s), Some(tt_raw_eval));
+        return (tt_move, Some(s), Some(entry));
     }
-    (tt_move, None, Some(tt_raw_eval))
+    (tt_move, None, Some(entry))
 }
