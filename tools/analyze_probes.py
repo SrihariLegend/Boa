@@ -1248,10 +1248,38 @@ def text_report(con, paths):
     else:
         warn(f"Only {n} cont. history events — `ch` probe not wired.")
 
+
+    # ── 13. Tactical Extensions ──
+    h1("13. Tactical Extensions")
+    
+    if count(con, "sx") > 0:
+        h2("Singular Extensions")
+        df_sx = query(con, "sx", [F("d", "INTEGER"), F("tt", "INTEGER"), F("sb", "INTEGER"), F("ss", "INTEGER"), F("ext", "INTEGER"), F("mc", "BOOLEAN")])
+        p(f"- **Total triggers:** {len(df_sx):,}")
+        p(f"- **Extensions applied:** {df_sx['ext'].sum():,} ({df_sx['ext'].mean()*100:.1f}%)")
+        p(f"- **Multi-cut events:** {df_sx['mc'].sum():,} ({df_sx['mc'].mean()*100:.1f}%)")
+        p(f"- **Negative extensions:** {(len(df_sx) - df_sx['ext'].sum() - df_sx['mc'].sum()):,} ({(len(df_sx) - df_sx['ext'].sum() - df_sx['mc'].sum())/len(df_sx)*100:.1f}%)")
+    else:
+        warn("No Singular Extension (`sx`) events found.")
+        
+    if count(con, "te") > 0:
+        h2("Threat Extensions")
+        df_te = query(con, "te", [F("d", "INTEGER"), F("lr", "INTEGER")])
+        p(f"- **Threat extensions triggered:** {len(df_te):,}")
+    else:
+        warn("No Threat Extension (`te`) events found.")
+        
+    if count(con, "re") > 0:
+        h2("Recapture Extensions")
+        df_re = query(con, "re", [F("d", "INTEGER")])
+        p(f"- **Recapture extensions triggered:** {len(df_re):,}")
+    else:
+        warn("No Recapture Extension (`re`) events found.")
+
     # ── Event Inventory ──
     h1("A. Event Inventory")
     types = ["cf", "b", "mg", "ev", "sn", "ss", "tt", "tc", "fp", "rp", "lm",
-             "nm", "se", "qs", "aw", "ii", "mo", "ht", "rt", "tm", "tz", "dd", "md", "ch", "cr"]
+             "nm", "se", "qs", "aw", "ii", "mo", "ht", "rt", "tm", "tz", "dd", "md", "ch", "cr", "sx", "te", "re"]
     names = {
         "cf": "Config", "b": "Board", "mg": "Movegen", "ev": "Eval",
         "sn": "Search Node", "ss": "Search Summary", "tt": "TT Probe",
@@ -1260,6 +1288,7 @@ def text_report(con, paths):
         "ii": "IID", "mo": "Move Ordering", "ht": "History Table", "rt": "Root",
         "tm": "Time Mgmt", "tz": "Syzygy", "dd": "Draw Detection",
         "md": "Mate Distance", "ch": "Cont. History", "cr": "Correction",
+        "sx": "Singular Ext", "te": "Threat Ext", "re": "Recapture Ext",
     }
     total = 0
     for t in types:
