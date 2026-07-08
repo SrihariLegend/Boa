@@ -241,13 +241,6 @@ pub(in crate::search) fn search_single(
         let mut early_stop = false;
 
         if time_budget > 0 {
-            // Easy move detection (7.5)
-            if stability_factor < 0.85 && node_factor < 0.85 && depth >= 3 {
-                decision = "easy_move".to_string();
-                early_stop = true;
-                let _ = decision;
-            }
-
             if elapsed >= adjusted_time {
                 decision = "soft_stop".to_string();
                 early_stop = true;
@@ -256,7 +249,7 @@ pub(in crate::search) fn search_single(
 
             // Node-time estimation (7.6)
             let branching_factor = if prev_iteration_nodes > 0 {
-                (iteration_nodes as f64 / prev_iteration_nodes as f64).clamp(1.5, 4.0)
+                iteration_nodes as f64 / prev_iteration_nodes as f64
             } else {
                 2.0
             };

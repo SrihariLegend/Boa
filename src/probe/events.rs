@@ -544,7 +544,6 @@ pub struct RootEvent {
 // 21. Time Management — typ:"tm"
 // ============================================================
 #[cfg_attr(feature = "probes", derive(Serialize))]
-#[cfg_attr(feature = "probes", derive(Serialize))]
 pub struct TimeIterationEvent {
     #[cfg_attr(feature = "probes", serde(rename = "d"))]
     pub depth: i32,
@@ -568,6 +567,7 @@ pub struct TimeIterationEvent {
     pub decision: String,
 }
 
+#[cfg_attr(feature = "probes", derive(Serialize))]
 pub struct TimeManagementEvent {
     #[cfg_attr(feature = "probes", serde(rename = "al"))]
     pub allocated: u64,

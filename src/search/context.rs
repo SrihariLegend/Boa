@@ -238,7 +238,6 @@ impl<'a> SearchContext<'a> {
         };
         let soft = (usable / mtg + inc / 2).clamp(MIN_MOVE_TIME_MS, usable) as u64;
         let hard = (soft * HARD_TIME_MULTIPLIER as i64 as u64)
-            .min(soft + HARD_TIME_ADDITIVE_CAP)
             .min(usable as u64)
             .max(MIN_MOVE_TIME_MS as u64);
         (soft, hard)
