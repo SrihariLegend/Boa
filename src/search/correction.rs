@@ -125,6 +125,12 @@ pub(in crate::search) fn update_correction(
     raw_eval: Score,
     ply: usize,
 ) {
+    // Only update at depth ≥ 4. Shallow-depth search results (d ≤ 3) are
+    // dominated by tactical noise and would poison the correction tables.
+    if depth < 4 {
+        return;
+    }
+
     let diff = best_score - raw_eval;
     if diff.abs() < 5 {
         return; // negligible error, skip update to avoid noise
@@ -180,7 +186,7 @@ pub(in crate::search) fn update_correction(
         ctx.nonpawn_corr_b[stm][np_idx_b] = old + bonus - (old * bonus.abs()) / CORRHIST_GRAVITY;
     }
 
-    // Continuation correction: (prev1, prev2) pair
+    // Continuation correction: (prev1, prev2) and (prev1, prev4) pairs
     if ply >= 2 {
         if let (Some(prev1), Some(prev2)) =
             (ctx.stack[ply - 1].cont_entry, ctx.stack[ply - 2].cont_entry)
@@ -191,6 +197,19 @@ pub(in crate::search) fn update_correction(
                 let old = ctx.cont_corr[stm][cont_idx][cont2_idx];
                 ctx.cont_corr[stm][cont_idx][cont2_idx] =
                     old + bonus - (old * bonus.abs()) / CORRHIST_GRAVITY;
+            }
+        }
+    }
+    if ply >= 4 {
+        if let Some(prev4) = ctx.stack[ply - 4].cont_entry {
+            let cont_idx = prev4.0 * 64 + prev4.1;
+            if let Some(prev1) = ctx.stack[ply - 1].cont_entry {
+                let cont1_idx = prev1.0 * 64 + prev1.1;
+                if cont1_idx < CONT_CORR_SIZE && cont_idx < CONT_CORR_SIZE {
+                    let old = ctx.cont_corr[stm][cont1_idx][cont_idx];
+                    ctx.cont_corr[stm][cont1_idx][cont_idx] =
+                        old + bonus - (old * bonus.abs()) / CORRHIST_GRAVITY;
+                }
             }
         }
     }

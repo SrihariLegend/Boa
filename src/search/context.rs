@@ -27,12 +27,11 @@ fn new_pawn_history_table() -> Box<[[[i32; 64]; 6]; 1024]> {
     let layout = Layout::new::<[[[i32; 64]; 6]; 1024]>();
     let ptr = unsafe { alloc(layout) as *mut [[[i32; 64]; 6]; 1024] };
     assert!(!ptr.is_null(), "pawn history table alloc failed");
-    // Initialize to 0: pawn structure provides hard context that makes the
-    // zero-meaningful case rare — the table key is inherently informative.
+    // Initialize to -5: bias against unproven moves.
     unsafe {
         let p = ptr as *mut i32;
         for i in 0..(1024 * 6 * 64) {
-            p.add(i).write(0i32);
+            p.add(i).write(-5i32);
         }
     }
     unsafe { Box::from_raw(ptr) }
