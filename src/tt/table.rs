@@ -21,7 +21,7 @@ pub struct TranspositionTable {
     buckets: Box<[Bucket]>,
     _mask: usize,
     num_buckets: usize,
-    age: AtomicU8,
+    age: AtomicU16,
     size_mb: usize,
 }
 
@@ -37,7 +37,7 @@ impl TranspositionTable {
                 .into_boxed_slice(),
             _mask: mask,
             num_buckets,
-            age: AtomicU8::new(0),
+            age: AtomicU16::new(0),
             size_mb,
         }
     }

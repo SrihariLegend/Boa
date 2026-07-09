@@ -3,7 +3,7 @@
 // ============================================================
 
 use crate::types::{Move, Score, MAX_PLY, SCORE_MATE};
-use std::sync::atomic::{AtomicU64, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicU16, AtomicU64, Ordering};
 
 mod atomic_slot;
 mod entry;

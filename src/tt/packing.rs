@@ -1,5 +1,5 @@
 use super::*;
-pub(super) fn pack_ctrl(key: u32, depth: i8, bound: Bound, age: u8) -> u64 {
+pub(super) fn pack_ctrl(key: u32, depth: i8, bound: Bound, age: u16) -> u64 {
     (key as u64)
         | ((depth as u8 as u64) << 32)
         | ((bound as u8 as u64) << 40)
@@ -26,6 +26,6 @@ pub(super) fn unpack_entry(ctrl: u64, data: u64) -> TtEntry {
         raw_eval: ((data >> 48) & 0xFFFF) as u16 as i16,
         depth: ((ctrl >> 32) & 0xFF) as u8 as i8,
         bound,
-        age: ((ctrl >> 48) & 0xFF) as u8,
+        age: ((ctrl >> 48) & 0xFFFF) as u16,
     }
 }
