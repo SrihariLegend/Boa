@@ -37,4 +37,5 @@ pub(in crate::eval) use pawns::*;
 pub(in crate::eval) use pst::*;
 
 pub(crate) use mobility::side_mobility;
+pub(crate) use pawns::PawnEvalCache;
 pub use types::{evaluate, evaluate_breakdown, EvalContext};

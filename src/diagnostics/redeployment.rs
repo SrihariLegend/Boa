@@ -84,9 +84,11 @@ pub(in crate::diagnostics) fn legal_moves_for_color(
 }
 
 pub(in crate::diagnostics) fn mobility_for(board: &Board, atk: &AttackTables, color: Color) -> u32 {
+    let pawn_cache = std::cell::RefCell::new(crate::eval::PawnEvalCache::new());
     let ctx = EvalContext {
         atk,
         options: &EngineOptions::default(),
+        pawn_cache: &pawn_cache,
     };
     side_mobility(board, &ctx, color)
 }

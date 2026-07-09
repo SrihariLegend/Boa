@@ -108,6 +108,10 @@ pub struct SearchContext<'a> {
     /// Keyed by pawn structure hash instead of the previous move.
     pub pawn_history: Box<[[[i32; 64]; 6]; 1024]>,
 
+    /// Pawn evaluation cache — avoids recomputing pawn_structure() for
+    /// positions with the same pawn layout during search.
+    pub pawn_cache: std::cell::RefCell<crate::eval::PawnEvalCache>,
+
     /// Correction history tables — per-thread online statistical correction to
     /// static eval. Learn systematic eval biases for specific position types.
     pub pawn_corr: Box<[[i32; 16384]; 2]>, // [stm][pawn_hash % 16384]
@@ -183,6 +187,7 @@ impl<'a> SearchContext<'a> {
             cont4: new_cont_table(),
             cont6: new_cont_table(),
             pawn_history: new_pawn_history_table(),
+            pawn_cache: std::cell::RefCell::new(crate::eval::PawnEvalCache::new()),
             pawn_corr: Box::new([[0i32; 16384]; 2]),
             nonpawn_corr_w: Box::new([[0i32; 16384]; 2]),
             nonpawn_corr_b: Box::new([[0i32; 16384]; 2]),

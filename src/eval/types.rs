@@ -1,5 +1,6 @@
 use super::*;
 use crate::sample_probe;
+use std::cell::RefCell;
 // ============================================================
 // Section 3: Main evaluation
 // ============================================================
@@ -7,6 +8,7 @@ use crate::sample_probe;
 pub struct EvalContext<'a> {
     pub atk: &'a AttackTables,
     pub options: &'a EngineOptions,
+    pub pawn_cache: &'a RefCell<PawnEvalCache>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -59,7 +61,16 @@ pub fn evaluate_breakdown(board: &Board, ctx: &EvalContext) -> EvalBreakdown {
     mg_score += mob_mg;
     eg_score += mob_eg;
 
-    let (pawn_mg, pawn_eg) = pawn_structure(board);
+    let (pawn_mg, pawn_eg) = {
+        let probe_result = ctx.pawn_cache.borrow().probe(board.pawn_hash);
+        if let Some(cached) = probe_result {
+            cached
+        } else {
+            let result = pawn_structure(board);
+            ctx.pawn_cache.borrow_mut().store(board.pawn_hash, result.0, result.1);
+            result
+        }
+    };
     let (pawn_mg, pawn_eg) =
         scale_score_pair((pawn_mg, pawn_eg), ctx.options.eval.pawn_structure_scale);
     mg_score += pawn_mg;

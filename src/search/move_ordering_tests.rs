@@ -69,6 +69,7 @@ pub(in crate::search) fn improving_compares_static_eval_two_plies_back() {
         &EvalContext {
             atk: &atk,
             options: &ctx.options,
+            pawn_cache: &ctx.pawn_cache,
         },
     );
     ctx.stack[0].static_eval = Some(eval0);
@@ -81,6 +82,7 @@ pub(in crate::search) fn improving_compares_static_eval_two_plies_back() {
         &EvalContext {
             atk: &atk,
             options: &ctx.options,
+            pawn_cache: &ctx.pawn_cache,
         },
     );
     assert_eq!(board.side, Color::Black);
@@ -99,6 +101,7 @@ pub(in crate::search) fn improving_compares_static_eval_two_plies_back() {
         &EvalContext {
             atk: &atk,
             options: &ctx.options,
+            pawn_cache: &ctx.pawn_cache,
         },
     );
     assert_eq!(is_improving(&ctx, eval2, 2), eval2 > eval0);

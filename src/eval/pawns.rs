@@ -232,3 +232,38 @@ pub(in crate::eval) fn pawn_structure(board: &Board) -> (i32, i32) {
 
     (mg, eg)
 }
+
+// ============================================================
+// Pawn evaluation cache
+// ============================================================
+
+const PAWN_CACHE_SIZE: usize = 1024;
+
+/// Direct-mapped cache for `pawn_structure()` results, keyed by `board.pawn_hash`.
+/// Pawn structures change rarely during search so hit rates are very high (~95%+).
+pub struct PawnEvalCache {
+    entries: Box<[(u64, (i32, i32)); PAWN_CACHE_SIZE]>,
+}
+
+impl PawnEvalCache {
+    pub fn new() -> Self {
+        Self {
+            entries: Box::new([(0u64, (0i32, 0i32)); PAWN_CACHE_SIZE]),
+        }
+    }
+
+    pub fn probe(&self, key: u64) -> Option<(i32, i32)> {
+        let idx = (key as usize) & (PAWN_CACHE_SIZE - 1);
+        let (stored_key, score) = self.entries[idx];
+        if stored_key == key {
+            Some(score)
+        } else {
+            None
+        }
+    }
+
+    pub fn store(&mut self, key: u64, mg: i32, eg: i32) {
+        let idx = (key as usize) & (PAWN_CACHE_SIZE - 1);
+        self.entries[idx] = (key, (mg, eg));
+    }
+}

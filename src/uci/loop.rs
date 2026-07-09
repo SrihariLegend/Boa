@@ -128,12 +128,14 @@ pub fn run() {
                 run_perft(&mut board, &atk, &z, d);
             }
             Some("eval") => {
-                use crate::eval::{evaluate, EvalContext};
+                use crate::eval::{evaluate, EvalContext, PawnEvalCache};
+                let pawn_cache = std::cell::RefCell::new(PawnEvalCache::new());
                 let score = evaluate(
                     &board,
                     &EvalContext {
                         atk: &atk,
                         options: &options,
+                        pawn_cache: &pawn_cache,
                     },
                 );
                 println!("eval: {} cp (side to move)", score);

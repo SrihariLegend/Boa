@@ -89,6 +89,7 @@ pub(in crate::search) fn quiescence(
                 &EvalContext {
                     atk: ctx.atk,
                     options: &ctx.options,
+                    pawn_cache: &ctx.pawn_cache,
                 },
             );
         }
@@ -168,6 +169,7 @@ pub(in crate::search) fn quiescence(
         &EvalContext {
             atk: ctx.atk,
             options: &ctx.options,
+            pawn_cache: &ctx.pawn_cache,
         },
     );
     let raw_eval = raw_eval_from_tt.unwrap_or(stand_pat as i16);

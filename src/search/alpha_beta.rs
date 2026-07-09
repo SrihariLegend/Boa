@@ -26,6 +26,7 @@ pub(in crate::search) fn alpha_beta(
             &EvalContext {
                 atk: ctx.atk,
                 options: &ctx.options,
+                pawn_cache: &ctx.pawn_cache,
             },
         );
     }
@@ -220,6 +221,7 @@ pub(in crate::search) fn alpha_beta(
                     &EvalContext {
                         atk: ctx.atk,
                         options: &ctx.options,
+                        pawn_cache: &ctx.pawn_cache,
                     },
                 )
             }
@@ -229,6 +231,7 @@ pub(in crate::search) fn alpha_beta(
                 &EvalContext {
                     atk: ctx.atk,
                     options: &ctx.options,
+                    pawn_cache: &ctx.pawn_cache,
                 },
             )
         };

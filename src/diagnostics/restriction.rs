@@ -86,9 +86,11 @@ pub fn extract_restriction_features(
     z: &Zobrist,
     options: EngineOptions,
 ) -> RestrictionFeatures {
+    let pawn_cache = std::cell::RefCell::new(crate::eval::PawnEvalCache::new());
     let ctx = EvalContext {
         atk,
         options: &options,
+        pawn_cache: &pawn_cache,
     };
     let eval = evaluate_breakdown(board, &ctx);
     let white_breaks = count_pawn_breaks(board, atk, z, Color::White);
