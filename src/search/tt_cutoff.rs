@@ -23,7 +23,7 @@ pub(in crate::search) fn try_tt_cutoff(
         return (tt_move, None, Some(entry));
     }
 
-    if is_pv || entry.depth < depth as i8 {
+    if is_pv || entry.depth < (depth.min(127) as i8) {
         return (tt_move, None, Some(entry));
     }
 

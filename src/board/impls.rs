@@ -2,6 +2,11 @@ use super::*;
 impl Board {
     // ---- Construction ----
 
+    /// Returns a blank board with `hash == 0`. The hash is NOT valid for
+    /// searching — it lacks the Zobrist castling component (`z.castling[0]`).
+    /// This constructor is only meant as a base for [`from_fen`], which
+    /// corrects the hash. Never call `make_move` on a board created directly
+    /// via `new()` without first going through `from_fen`.
     pub fn new() -> Self {
         Board {
             pieces: [[0; 6]; 2],
@@ -121,6 +126,11 @@ impl Board {
                     board.place_fen_char(c, &mut file, rank, &z);
                     file += 1;
                 }
+            }
+            // Malformed FEN with >8 files on a rank would push `file`
+            // past 7 inside place_fen_char → sq_from panics.
+            if file > 8 {
+                return None;
             }
         }
 

@@ -83,7 +83,7 @@ pub struct FfpInput {
     pub static_eval: Score,
     pub alpha: Score,
     pub move_index: usize,
-    pub is_cut_node: bool,
+    pub is_cut_node: bool, // diagnostic only (probe events), not used in margin calc
     pub history_score: i32,
     pub corr_val: i32,
 }

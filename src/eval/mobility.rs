@@ -64,7 +64,7 @@ pub(in crate::eval) fn mobility_and_activity(board: &Board, ctx: &EvalContext) -
         while rooks != 0 {
             let sq = bb_pop_lsb(&mut rooks);
             let atk = ctx.atk.rook_attacks(sq, occ);
-            let mob = (atk & !our_occ).count_ones() as usize;
+            let mob = (atk & !our_occ & !their_pawn_attacks).count_ones() as usize;
             let mob = mob.min(14);
             mg += sign * ROOK_MOBILITY[mob].0;
             eg += sign * ROOK_MOBILITY[mob].1;

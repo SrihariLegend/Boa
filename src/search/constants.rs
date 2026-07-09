@@ -48,6 +48,10 @@ pub(in crate::search) const RFP_MARGIN_PER_DEPTH: i32 = 50;
 
 // ---- FFP (Forward Futility Pruning) ----
 
+/// FFP: margin per depth ply (centipawns). Same starting point as RFP;
+/// can be tuned independently. [NEEDS SPRT]
+pub(in crate::search) const FFP_MARGIN_PER_DEPTH: i32 = 50;
+
 /// FFP: maximum remaining depth.
 pub(in crate::search) const FFP_MAX_DEPTH: i32 = 4;
 

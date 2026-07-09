@@ -132,8 +132,9 @@ pub(in crate::eval) fn is_backward_pawn(
         return false;
     }
 
-    // No friendly pawn on adjacent files behind or equal rank can support
-    let support_mask = ranks_behind_inclusive(color, rank, adj_files);
+    // No friendly pawn on adjacent files strictly behind (pawns defend
+    // diagonally forward, not sideways — same-rank pawns don't count).
+    let support_mask = ranks_behind_inclusive(color, rank, adj_files) & !BB_RANKS[rank as usize];
     our_pawns & support_mask == 0
 }
 

@@ -30,7 +30,8 @@ pub(in crate::eval) const OUTPOST_UNSUPPORTED: i32 = 10;
 /// SF uses ~28 (tuned). 15 is conservative. [NEEDS TUNING]
 pub(in crate::eval) const TEMPO_BONUS: i32 = 10;
 
-/// Doubled pawn penalty (mg, eg). Two pawns on same file.
+/// Doubled pawn penalty (mg, eg). Per-pawn: each pawn on a doubled file
+/// incurs this penalty. A doubled pair costs 2×, a tripled group costs 3×.
 /// SF: ~-5/-20 (file-dependent). CPW: -10 to -20. [NEEDS TUNING]
 pub(in crate::eval) const DOUBLED_PAWN_PENALTY: (i32, i32) = (-5, -10);
 

@@ -69,7 +69,7 @@ pub(in crate::search) fn try_null_move(
 
     if pruned && depth >= 14 {
         ctx.nmp_in_progress = true;
-        let v_depth = depth - r - 4;
+        let v_depth = (depth - r - 4).max(1);
         let mut v_pv = Vec::new();
 
         ctx.history_hashes.pop(); // temporarily remove so verification search doesn't instantly draw

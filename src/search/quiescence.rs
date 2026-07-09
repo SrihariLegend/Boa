@@ -96,7 +96,7 @@ pub(in crate::search) fn quiescence(
         let mut list = gen_moves(board, ctx.atk);
         score_moves(board, ctx, &mut list, tt_move, ply);
 
-        let mut best_move = tt_move;
+        let mut best_move = MOVE_NONE;
 
         let mut legal_moves = 0;
         for i in 0..list.count {
@@ -172,7 +172,7 @@ pub(in crate::search) fn quiescence(
     );
     let raw_eval = raw_eval_from_tt.unwrap_or(stand_pat as i16);
 
-    let mut best_move = tt_move;
+    let mut best_move = MOVE_NONE;
 
     if stand_pat >= beta {
         ctx.tt.store(

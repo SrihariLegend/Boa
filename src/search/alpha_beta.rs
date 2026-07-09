@@ -462,6 +462,9 @@ pub(in crate::search) fn alpha_beta(
                 history_score -= 750_000;
             }
         }
+        // Clamp to the natural gravity range so SMP root bonuses and
+        // other ordering artefacts don't bleed into the LMR formula.
+        history_score = history_score.clamp(-HISTORY_GRAVITY, HISTORY_GRAVITY);
 
         let mut extension = 0;
 
@@ -669,7 +672,7 @@ pub(in crate::search) fn alpha_beta(
                 SearchNode {
                     alpha: -beta,
                     beta: -alpha,
-                    depth: depth - 1,
+                    depth: depth - 1 + extension,
                     ply: ply + 1,
                     is_pv,
                     excluded_move: None,
@@ -879,7 +882,7 @@ pub(in crate::search) fn alpha_beta(
         board.hash,
         score_to_tt(best_score, ply),
         best_move,
-        depth as i8,
+        depth.min(127) as i8,
         bound,
         static_eval as i16,
     );

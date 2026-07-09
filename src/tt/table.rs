@@ -235,6 +235,10 @@ impl TranspositionTable {
         self.age.fetch_add(1, Ordering::Relaxed);
     }
 
+    /// Clear all TT entries. Caller must ensure no search threads are running
+    /// (i.e., the stop flag has been set and all workers have joined). Clearing
+    /// while a concurrent `store()` holds a BUSY lock loses the lock bit and
+    /// leaves a partially written entry in the cleared slot.
     pub fn clear(&self) {
         for bucket in self.buckets.iter() {
             for slot in bucket.entries.iter() {

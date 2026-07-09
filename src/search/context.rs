@@ -58,7 +58,7 @@ pub struct SearchContext<'a> {
     pub z: &'a Zobrist,
     pub tt: &'a TranspositionTable,
     pub limits: Limits,
-    pub start_ms: u64,
+    pub start: std::time::Instant,
     pub contempt: i32,
     pub options: EngineOptions,
     pub syzygy: Option<&'a SyzygyTablebase>,
@@ -160,7 +160,7 @@ impl<'a> SearchContext<'a> {
             tt,
             limits,
             stop_flag,
-            start_ms: now_ms(),
+            start: std::time::Instant::now(),
             root_depth: 0,
             smp_worker_id: 0,
             contempt,
@@ -193,7 +193,7 @@ impl<'a> SearchContext<'a> {
     }
 
     pub fn elapsed_ms(&self) -> u64 {
-        now_ms() - self.start_ms
+        self.start.elapsed().as_millis() as u64
     }
 
     pub(in crate::search) fn should_stop(&mut self) -> bool {
@@ -256,13 +256,6 @@ impl<'a> SearchContext<'a> {
     }
 }
 
-pub(in crate::search) fn now_ms() -> u64 {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64
-}
 
 // ============================================================
 // Section 0: Bench

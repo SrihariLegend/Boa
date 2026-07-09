@@ -36,7 +36,7 @@ pub(in crate::search) fn should_ffp_prune(input: FfpInput) -> bool {
 }
 
 pub fn ffp_margin(input: FfpInput) -> i32 {
-    let base_gain = RFP_MARGIN_PER_DEPTH * input.depth;
+    let base_gain = FFP_MARGIN_PER_DEPTH * input.depth;
 
     let idx = (input.move_index.clamp(1, FFP_MAX_RANK)) as f64;
     let u_idx = (1.0 - 2.0 * idx.ln() / (FFP_MAX_RANK as f64).ln()).clamp(-1.0, 1.0);

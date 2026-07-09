@@ -26,7 +26,7 @@ pub fn bench(atk: &AttackTables, z: &Zobrist, depth: u32) {
     use crate::tt::TranspositionTable;
     let tt = TranspositionTable::new(64);
     let mut total_nodes = 0u64;
-    let start = now_ms();
+    let start = std::time::Instant::now();
 
     let no_stop = std::sync::atomic::AtomicBool::new(false);
     for (i, fen) in BENCH_FENS.iter().enumerate() {
@@ -62,7 +62,7 @@ pub fn bench(atk: &AttackTables, z: &Zobrist, depth: u32) {
         tt.clear();
     }
 
-    let elapsed = (now_ms() - start).max(1);
+    let elapsed = start.elapsed().as_millis() as u64;
     let nps = total_nodes * 1000 / elapsed;
     eprintln!("============================");
     eprintln!("Total time  : {} ms", elapsed);

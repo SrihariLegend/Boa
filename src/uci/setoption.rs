@@ -57,7 +57,7 @@ pub(super) fn handle_setoption<'a>(
                     *syzygy = next;
                 }
                 Err(err) => {
-                    eprintln!("info string SyzygyPath error: {err}");
+                    println!("info string SyzygyPath error: {err}");
                     *syzygy = None;
                 }
             }
